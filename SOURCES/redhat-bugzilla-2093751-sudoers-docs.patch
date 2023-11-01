@@ -1,0 +1,135 @@
+commit 55e8c83ee5920ab30644f54f7a525255b1de4b84
+Author: Nathan Scott <nathans@redhat.com>
+Date:   Mon Aug 29 14:25:03 2022 +1000
+
+    docs: describe working sudoers configuration with requiretty
+    
+    When /etc/sudoers is configured with 'Defaults requiretty',
+    pmlogctl cannot invoke pmlogger_check in the normal fashion.
+    Symptoms of the problem are the following system log message:
+    
+    pmlogctl[PID]: sudo: sorry, you must have a tty to run sudo
+    
+    pmiectl and pmie_check are similarly affected.  The simplest
+    solution is to add an additional configuration line excluding
+    these commands from requiring a tty; this is the approach now
+    documented.
+    
+    Note these PCP commands are not interactive (require no tty)
+    and the unprivileged 'pcp' account uses nologin(8) as a shell
+    anyway, so requiretty offers no advantages here.  Note also
+    there's debate about whether requiretty is a useful security
+    measure in general as it can be trivially bypassed; further
+    details: https://bugzilla.redhat.com/show_bug.cgi?id=1020147
+    
+    Resolves Red Hat BZ #2093751
+
+diff -Naurp pcp-5.3.7.orig/man/man1/pmie_check.1 pcp-5.3.7/man/man1/pmie_check.1
+--- pcp-5.3.7.orig/man/man1/pmie_check.1	2021-11-04 08:26:15.000000000 +1100
++++ pcp-5.3.7/man/man1/pmie_check.1	2022-08-31 11:17:52.362276530 +1000
+@@ -406,6 +406,42 @@ no
+ entries are needed as the timer mechanism provided by
+ .B systemd
+ is used instead.
++.PP
++The
++.BR pmiectl (1)
++utility may invoke
++.B pmie_check
++using the
++.BR sudo (1)
++command to run it under the $PCP_USER ``pcp'' account.
++If
++.B sudo
++is configured with the non-default
++.I requiretty
++option (see below),
++.B pmie_check
++may fail to run due to not having a tty configured.
++This issue can be resolved by adding a second line
++(expand $PCP_BINADM_DIR according to your platform)
++to the
++.I /etc/sudoers
++configuration file as follows:
++.P
++.ft CW
++.nf
++.in +0.5i
++Defaults requiretty
++Defaults!$PCP_BINADM_DIR/pmie_check !requiretty
++.in
++.fi
++.ft 1
++.P
++Note that the unprivileged PCP account under which these
++commands run uses
++.I /sbin/nologin
++as the shell, so the
++.I requiretty
++option is ineffective here and safe to disable in this way.
+ .SH FILES
+ .TP 5
+ .I $PCP_PMIECONTROL_PATH
+diff -Naurp pcp-5.3.7.orig/man/man1/pmlogger_check.1 pcp-5.3.7/man/man1/pmlogger_check.1
+--- pcp-5.3.7.orig/man/man1/pmlogger_check.1	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/man/man1/pmlogger_check.1	2022-08-31 11:20:52.470086724 +1000
+@@ -830,6 +830,42 @@ no
+ entries are needed as the timer mechanism provided by
+ .B systemd
+ is used instead.
++.PP
++The
++.BR pmlogctl (1)
++utility may invoke
++.B pmlogger_check
++using the
++.BR sudo (1)
++command to run it under the $PCP_USER ``pcp'' account.
++If
++.B sudo
++is configured with the non-default
++.I requiretty
++option (see below),
++.B pmlogger_check
++may fail to run due to not having a tty configured.
++This issue can be resolved by adding a second line
++(expand $PCP_BINADM_DIR according to your platform)
++to the
++.I /etc/sudoers
++configuration file as follows:
++.P
++.ft CW
++.nf
++.in +0.5i
++Defaults requiretty
++Defaults!$PCP_BINADM_DIR/pmlogger_check !requiretty
++.in
++.fi
++.ft 1
++.P
++Note that the unprivileged PCP account under which these
++commands run uses
++.I /sbin/nologin
++as the shell, so the
++.I requiretty 
++option is ineffective here and safe to disable in this way.
+ .SH FILES
+ .TP 5
+ .I $PCP_PMLOGGERCONTROL_PATH
+@@ -926,7 +962,7 @@ instances for
+ .I hostname
+ have been launched in the interim.
+ Because the cron-driven PCP archive management scripts run under
+-the uid of the user ``pcp'',
++the $PCP_USER account ``pcp'',
+ .BI $PCP_ARCHIVE_DIR/ hostname /SaveLogs
+ typically needs to be owned by the user ``pcp''.
+ .TP
+@@ -994,6 +1030,7 @@ platforms.
+ .BR pmlogmv (1),
+ .BR pmlogrewrite (1),
+ .BR pmsocks (1),
++.BR sudo (1),
+ .BR systemd (1),
+ .BR xz (1)
+ and

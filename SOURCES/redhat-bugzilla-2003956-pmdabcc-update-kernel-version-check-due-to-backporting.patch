@@ -1,0 +1,20 @@
+bcc included in RHEL 8.6 doesn't support the kernel_struct_has_field function.
+The 4.18.x kernel in RHEL 8.6 did backport the `state` to `__state` rename (upstream:
+change was in kernel v5.14+), and now we're in a situation where we can't test for
+the existence of this kernel struct member and also can't rely on a kernel version check.
+
+Therefore, let's patch it here for RHEL 8.x only:
+
+diff --git a/src/pmdas/bcc/modules/runqlat.python b/src/pmdas/bcc/modules/runqlat.python
+index 1c6c6b4b0..efc30e958 100644
+--- a/src/pmdas/bcc/modules/runqlat.python
++++ b/src/pmdas/bcc/modules/runqlat.python
+@@ -100,7 +100,7 @@ class PCPBCCModule(PCPBCCBase):
+                 if (
+                     hasattr(BPF, "kernel_struct_has_field")
+                     and BPF.kernel_struct_has_field(b"task_struct", b"__state") == 1
+-                ) or self.kernel_version() >= (5, 14, 0):
++                ) or self.kernel_version() >= (4, 18, 0):
+                     self.bpf_text = self.bpf_text.replace('STATE_FIELD', '__state')
+                 else:
+                     self.bpf_text = self.bpf_text.replace('STATE_FIELD', 'state')

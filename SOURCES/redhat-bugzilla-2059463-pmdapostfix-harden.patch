@@ -1,0 +1,146 @@
+commit f54eddf494e474531e5af609bcc376037a918977
+Author: Nathan Scott <nathans@redhat.com>
+Date:   Tue Apr 26 14:32:59 2022 +1000
+
+    pmdapostfix: harden against a not-yet-running postfix
+    
+    Ensure the postfix PMDA can start and service requests even
+    if postfix is not yet started.
+
+diff --git a/src/perl/PMDA/local.c b/src/perl/PMDA/local.c
+index e223bde7a..33130bc5d 100644
+--- a/src/perl/PMDA/local.c
++++ b/src/perl/PMDA/local.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2012-2017 Red Hat.
++ * Copyright (c) 2012-2017,2022 Red Hat.
+  * Copyright (c) 2008-2011 Aconex.  All Rights Reserved.
+  * 
+  * This program is free software; you can redistribute it and/or modify it
+@@ -139,18 +139,15 @@ int
+ local_tail(char *file, scalar_t *callback, int cookie)
+ {
+     int fd = open(file, O_RDONLY | O_NDELAY);
+-    struct stat stats;
++    struct stat stats = {0};
+     int me;
+ 
+-    if (fd < 0) {
+-	pmNotifyErr(LOG_ERR, "open failed (%s): %s", file, osstrerror());
+-	exit(1);
+-    }
+-    if (fstat(fd, &stats) < 0) {
+-	pmNotifyErr(LOG_ERR, "fstat failed (%s): %s", file, osstrerror());
+-	exit(1);
+-    }
+-    lseek(fd, 0L, SEEK_END);
++    if (fd < 0)
++	pmNotifyErr(LOG_INFO, "open failed (%s): %s", file, osstrerror());
++    else if (fstat(fd, &stats) < 0)
++	pmNotifyErr(LOG_INFO, "fstat failed (%s): %s", file, osstrerror());
++    else 
++	lseek(fd, 0L, SEEK_END);
+     me = local_file(FILE_TAIL, fd, callback, cookie);
+     files[me].me.tail.path = strdup(file);
+     files[me].me.tail.dev = stats.st_dev;
+@@ -416,10 +413,11 @@ local_pmdaMain(pmdaInterface *self)
+ 	}
+ 
+ 	for (i = 0; i < nfiles; i++) {
+-	    fd = files[i].fd;
+ 	    /* check for log rotation or host reconnection needed */
+ 	    if ((count % 10) == 0)	/* but only once every 10 */
+ 		local_connection(&files[i]);
++	    if ((fd = files[i].fd) < 0)
++		continue;
+ 	    if (files[i].type != FILE_TAIL && !(__pmFD_ISSET(fd, &readyfds)))
+ 		continue;
+ 	    offset = 0;
+@@ -431,21 +429,16 @@ multiread:
+ 		     (oserror() == EAGAIN) ||
+ 		     (oserror() == EWOULDBLOCK)))
+ 		    continue;
+-		if (files[i].type == FILE_SOCK) {
+-		    close(files[i].fd);
+-		    files[i].fd = -1;
+-		    continue;
+-		}
+-		pmNotifyErr(LOG_ERR, "Data read error on %s: %s\n",
+-				local_filetype(files[i].type), osstrerror());
+-		exit(1);
++		close(files[i].fd);
++		files[i].fd = -1;
++		continue;
+ 	    }
+ 	    if (bytes == 0) {
+ 		if (files[i].type == FILE_TAIL)
+ 		    continue;
+-		pmNotifyErr(LOG_ERR, "No data to read - %s may be closed\n",
+-				local_filetype(files[i].type));
+-		exit(1);
++		close(files[i].fd);
++		files[i].fd = -1;
++		continue;
+ 	    }
+ 	    /*
+ 	     * good read ... data up to buffer + offset + bytes is all OK
+diff --git a/src/pmdas/postfix/pmdapostfix.pl b/src/pmdas/postfix/pmdapostfix.pl
+index ac46816bc..d6d3f4d3a 100644
+--- a/src/pmdas/postfix/pmdapostfix.pl
++++ b/src/pmdas/postfix/pmdapostfix.pl
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2012-2015 Red Hat.
++# Copyright (c) 2012-2015,2022 Red Hat.
+ # Copyright (c) 2009-2010 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
+ #
+ # This program is free software; you can redistribute it and/or modify it
+@@ -56,8 +56,6 @@ my @postfix_received_dom = (
+ 		1 => 'smtp',
+ 	     );
+ 
+-my $setup = defined($ENV{'PCP_PERL_PMNS'}) || defined($ENV{'PCP_PERL_DOMAIN'});
+-
+ sub postfix_do_refresh
+ {
+     QUEUE:
+@@ -212,7 +210,7 @@ $logstats{"received"}{1} = 0;
+ 
+ # Note:
+ # Environment variables.
+-# $PMDA_POSTFIX_QSHAPE: alternative executable qshape scrpipt (for QA)
++# $PMDA_POSTFIX_QSHAPE: alternative executable qshape script (for QA)
+ #                       ... over-rides default and command line argument.
+ #			... over-rides default arguments -b 10 -t $refresh
+ # $PMDA_POSTFIX_REFRESH: alternative refresh rate (for QA)
+@@ -228,7 +226,7 @@ if (defined($ENV{'PMDA_POSTFIX_QSHAPE'})) {
+     $qshape = $ENV{'PMDA_POSTFIX_QSHAPE'};
+     $qshape_args = '';
+ }
+-if (!$setup) { $pmda->log("qshape cmd: $qshape $qshape_args <qname>"); }
++unless (pmda_install()) { $pmda->log("qshape cmd: $qshape $qshape_args <qname>"); }
+ 
+ if (defined($ENV{'PMDA_POSTFIX_REFRESH'})) { $refresh = $ENV{'PMDA_POSTFIX_REFRESH'}; }
+ 
+@@ -238,12 +236,15 @@ foreach my $file ( @logfiles ) {
+     }
+ }
+ if (defined($ENV{'PMDA_POSTFIX_LOG'})) { $logfile = $ENV{'PMDA_POSTFIX_LOG'}; } 
+-unless(defined($logfile))
+-{
+-    $pmda->log("Fatal: No Postfix log file found in: @logfiles");
+-    die 'No Postfix log file found';
++unless (pmda_install()) {
++    if (defined($logfile)) {
++	$pmda->log("logfile: $logfile");
++    } else {
++	$pmda->log("Warning: assuming logfile: $logfiles[0] as no Postfix log found yet from: @logfiles");
++    }
+ }
+-if (!$setup) { $pmda->log("logfile: $logfile"); }
++# set a good default if none found, before continuing
++unless (defined($logfile)) { $logfile = $logfiles[0]; }
+ 
+ $pmda->add_indom($postfix_queues_indom, \@postfix_queues_dom, '', '');
+ $pmda->add_indom($postfix_sent_indom, \@postfix_sent_dom, '', '');
