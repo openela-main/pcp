@@ -1,0 +1,32 @@
+commit 4014e295f7b5f541439774bd3c88924d3c061325
+Author: Masatake YAMATO <yamato@redhat.com>
+Date:   Thu Oct 20 13:55:43 2022 +0900
+
+    pmdas/snmp: install the agent specific configuration file to PMDATMPDIR
+    
+    When running ./Install of the agent, the following line is printed in
+    /var/log/pcp/pmcd/snmp.log.
+    
+      Log for pmdasnmp on pcp-netsnmp started Tue Oct 18 22:45:23 2022
+    
+      opening /var/lib/pcp/pmdas/snmp/snmp.conf No such file or directory at /var/lib/pcp/pmdas/snmp/pmdasnmp.pl line 90.
+    
+    As a result, pmdasnmp.pl cannot read its configuration file though it
+    is "./Install"ed.
+    
+    Signed-off-by: Masatake YAMATO <yamato@redhat.com>
+
+diff --git a/src/pmdas/snmp/GNUmakefile b/src/pmdas/snmp/GNUmakefile
+index ce0e3e8036..7bf5471a76 100644
+--- a/src/pmdas/snmp/GNUmakefile
++++ b/src/pmdas/snmp/GNUmakefile
+@@ -44,7 +44,7 @@ install_pcp install: default
+ 	$(INSTALL) -m 755 -t $(PMDATMPDIR) Install Remove $(PMDAADMDIR)
+ 	$(INSTALL) -m 644 -t $(PMDATMPDIR)/pmda$(IAM).pl pmda$(IAM).pl $(PMDAADMDIR)/pmda$(IAM).pl
+ 	$(INSTALL) -m 755 -d $(PMDACONFIG)
+-	$(INSTALL) -m 644 snmp.conf $(PMDACONFIG)/snmp.conf
++	$(INSTALL) -m 644 -t $(PMDATMPDIR)/$(IAM).conf $(IAM).conf $(PMDACONFIG)/$(IAM).conf
+ 	@$(INSTALL_MAN)
+ else
+ build-me:
+

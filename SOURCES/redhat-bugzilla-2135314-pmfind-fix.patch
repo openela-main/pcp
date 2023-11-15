@@ -1,0 +1,534 @@
+diff -Naurp pcp-5.3.7.orig/qa/1985 pcp-5.3.7/qa/1985
+--- pcp-5.3.7.orig/qa/1985	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1985	2022-10-19 21:32:03.971832371 +1100
+@@ -0,0 +1,38 @@
++#!/bin/sh
++# PCP QA Test No. 1985
++# Exercise a pmfind fix - valgrind-enabled variant.
++#
++# Copyright (c) 2022 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_check_valgrind
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++$sudo rm -rf $tmp $tmp.* $seq.full
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++# real QA test starts here
++export seq
++./1986 --valgrind \
++| $PCP_AWK_PROG '
++skip == 1 && $1 == "==="       { skip = 0 }
++/^=== std err ===/             { skip = 1 }
++skip == 0              { print }
++skip == 1              { print >>"'$here/$seq.full'" }'
++
++# success, all done
++exit
+diff -Naurp pcp-5.3.7.orig/qa/1985.out pcp-5.3.7/qa/1985.out
+--- pcp-5.3.7.orig/qa/1985.out	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1985.out	2022-10-19 21:32:03.971832371 +1100
+@@ -0,0 +1,11 @@
++QA output created by 1985
++QA output created by 1986 --valgrind
++=== std out ===
++SOURCE HOSTNAME
++=== filtered valgrind report ===
++Memcheck, a memory error detector
++Command: pmfind -S -m probe=127.0.0.1/32
++LEAK SUMMARY:
++definitely lost: 0 bytes in 0 blocks
++indirectly lost: 0 bytes in 0 blocks
++ERROR SUMMARY: 0 errors from 0 contexts ...
+diff -Naurp pcp-5.3.7.orig/qa/1986 pcp-5.3.7/qa/1986
+--- pcp-5.3.7.orig/qa/1986	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1986	2022-10-19 21:32:03.971832371 +1100
+@@ -0,0 +1,62 @@
++#!/bin/sh
++# PCP QA Test No. 1986
++# Exercise libpcp_web timers pmfind regression fix.
++#
++# Copyright (c) 2022 Red Hat.  All Rights Reserved.
++#
++
++if [ $# -eq 0 ]
++then
++    seq=`basename $0`
++    echo "QA output created by $seq"
++else
++    # use $seq from caller, unless not set
++    [ -n "$seq" ] || seq=`basename $0`
++    echo "QA output created by `basename $0` $*"
++fi
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++do_valgrind=false
++if [ "$1" = "--valgrind" ]
++then
++    _check_valgrind
++    do_valgrind=true
++fi
++
++test -x $PCP_BIN_DIR/pmfind || _notrun No support for pmfind
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++hostname=`hostname || echo localhost`
++$sudo rm -rf $tmp $tmp.* $seq.full
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter()
++{
++    sed \
++	-e "s@$tmp@TMP@g" \
++	-e "s/ $hostname/ HOSTNAME/" \
++	-e 's/^[a-f0-9][a-f0-9]* /SOURCE /' \
++    # end
++}
++
++# real QA test starts here
++if $do_valgrind
++then
++    _run_valgrind pmfind -S -m probe=127.0.0.1/32
++else
++    pmfind -S -m probe=127.0.0.1/32
++fi \
++| _filter
++
++# success, all done
++exit
+diff -Naurp pcp-5.3.7.orig/qa/1986.out pcp-5.3.7/qa/1986.out
+--- pcp-5.3.7.orig/qa/1986.out	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1986.out	2022-10-19 21:32:03.971832371 +1100
+@@ -0,0 +1,2 @@
++QA output created by 1986
++SOURCE HOSTNAME
+diff -Naurp pcp-5.3.7.orig/qa/group pcp-5.3.7/qa/group
+--- pcp-5.3.7.orig/qa/group	2022-10-19 20:49:42.638708707 +1100
++++ pcp-5.3.7/qa/group	2022-10-19 21:32:03.972832359 +1100
+@@ -1974,4 +1974,6 @@ x11
+ 1957 libpcp local valgrind
+ 1978 atop local
+ 1984 pmlogconf pmda.redis local
++1985 pmfind local valgrind
++1986 pmfind local
+ 4751 libpcp threads valgrind local pcp helgrind
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c pcp-5.3.7/src/libpcp_web/src/webgroup.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c	2021-11-01 13:02:26.000000000 +1100
++++ pcp-5.3.7/src/libpcp_web/src/webgroup.c	2022-10-19 21:32:03.973832346 +1100
+@@ -287,11 +287,24 @@ webgroup_new_context(pmWebGroupSettings
+ }
+ 
+ static void
++webgroup_timers_stop(struct webgroups *groups)
++{
++    if (groups->active) {
++	uv_timer_stop(&groups->timer);
++	uv_close((uv_handle_t *)&groups->timer, NULL);
++	pmWebTimerRelease(groups->timerid);
++	groups->timerid = -1;
++	groups->active = 0;
++    }
++}
++
++static void
+ webgroup_garbage_collect(struct webgroups *groups)
+ {
+     dictIterator        *iterator;
+     dictEntry           *entry;
+     context_t		*cp;
++    unsigned int	count = 0, drops = 0;
+ 
+     if (pmDebugOptions.http || pmDebugOptions.libweb)
+ 	fprintf(stderr, "%s: started\n", "webgroup_garbage_collect");
+@@ -308,33 +321,40 @@ webgroup_garbage_collect(struct webgroup
+ 		uv_mutex_unlock(&groups->mutex);
+ 		webgroup_drop_context(cp, groups);
+ 		uv_mutex_lock(&groups->mutex);
++		drops++;
+ 	    }
++	    count++;
+ 	}
+ 	dictReleaseIterator(iterator);
++
++	/* if dropping the last remaining context, do cleanup */
++	if (groups->active && drops == count) {
++	    if (pmDebugOptions.http || pmDebugOptions.libweb)
++		fprintf(stderr, "%s: freezing\n", "webgroup_garbage_collect");
++	    webgroup_timers_stop(groups);
++	}
+ 	uv_mutex_unlock(&groups->mutex);
+     }
+ 
+     if (pmDebugOptions.http || pmDebugOptions.libweb)
+-	fprintf(stderr, "%s: finished\n", "webgroup_garbage_collect");
++	fprintf(stderr, "%s: finished [%u drops from %u entries]\n",
++			"webgroup_garbage_collect", drops, count);
+ }
+ 
+ static void
+ refresh_maps_metrics(void *data)
+ {
+     struct webgroups	*groups = (struct webgroups *)data;
++    unsigned int	value;
+ 
+-    if (groups->metrics) {
+-	unsigned int	value;
+-
+-	value = dictSize(contextmap);
+-	mmv_set(groups->map, groups->metrics[CONTEXT_MAP_SIZE], &value);
+-	value = dictSize(namesmap);
+-	mmv_set(groups->map, groups->metrics[NAMES_MAP_SIZE], &value);
+-	value = dictSize(labelsmap);
+-	mmv_set(groups->map, groups->metrics[LABELS_MAP_SIZE], &value);
+-	value = dictSize(instmap);
+-	mmv_set(groups->map, groups->metrics[INST_MAP_SIZE], &value);
+-    }
++    value = contextmap? dictSize(contextmap) : 0;
++    mmv_set(groups->map, groups->metrics[CONTEXT_MAP_SIZE], &value);
++    value = namesmap? dictSize(namesmap) : 0;
++    mmv_set(groups->map, groups->metrics[NAMES_MAP_SIZE], &value);
++    value = labelsmap? dictSize(labelsmap) : 0;
++    mmv_set(groups->map, groups->metrics[LABELS_MAP_SIZE], &value);
++    value = instmap? dictSize(instmap) : 0;
++    mmv_set(groups->map, groups->metrics[INST_MAP_SIZE], &value);
+ }
+ 
+ static void
+@@ -487,6 +507,7 @@ pmWebGroupDestroy(pmWebGroupSettings *se
+ 	if (pmDebugOptions.libweb)
+ 	    fprintf(stderr, "%s: destroy context %p gp=%p\n", "pmWebGroupDestroy", cp, gp);
+ 
++	webgroup_deref_context(cp);
+ 	webgroup_drop_context(cp, gp);
+     }
+     sdsfree(msg);
+@@ -2394,17 +2415,12 @@ pmWebGroupClose(pmWebGroupModule *module
+ 
+     if (groups) {
+ 	/* walk the contexts, stop timers and free resources */
+-	if (groups->active) {
+-	    groups->active = 0;
+-	    uv_timer_stop(&groups->timer);
+-	    pmWebTimerRelease(groups->timerid);
+-	    groups->timerid = -1;
+-	}
+ 	iterator = dictGetIterator(groups->contexts);
+ 	while ((entry = dictNext(iterator)) != NULL)
+ 	    webgroup_drop_context((context_t *)dictGetVal(entry), NULL);
+ 	dictReleaseIterator(iterator);
+ 	dictRelease(groups->contexts);
++	webgroup_timers_stop(groups);
+ 	memset(groups, 0, sizeof(struct webgroups));
+ 	free(groups);
+     }
+diff -Naurp pcp-5.3.7.orig/src/pmfind/source.c pcp-5.3.7/src/pmfind/source.c
+--- pcp-5.3.7.orig/src/pmfind/source.c	2021-02-17 15:27:41.000000000 +1100
++++ pcp-5.3.7/src/pmfind/source.c	2022-10-19 21:32:03.973832346 +1100
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020 Red Hat.
++ * Copyright (c) 2020,2022 Red Hat.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU General Public License as published by the
+@@ -25,6 +25,7 @@ static pmWebGroupSettings settings;
+ typedef struct {
+     sds			source;
+     sds			hostspec;
++    unsigned int	refcount;
+ } context_t;
+ 
+ typedef struct {
+@@ -38,22 +39,34 @@ typedef struct {
+ } sources_t;
+ 
+ static void
++source_release(sources_t *sp, context_t *cp, sds ctx)
++{
++    pmWebGroupDestroy(&settings, ctx, sp);
++    sdsfree(cp->hostspec);
++    sdsfree(cp->source);
++    free(cp);
++}
++
++static void
+ sources_release(void *arg, const struct dictEntry *entry)
+ {
+     sources_t	*sp = (sources_t *)arg;
+     context_t	*cp = (context_t *)dictGetVal(entry);
+     sds		ctx = (sds)entry->key;
+ 
+-    pmWebGroupDestroy(&settings, ctx, sp);
+-    sdsfree(cp->hostspec);
+-    sdsfree(cp->source);
++    if (pmDebugOptions.discovery)
++	fprintf(stderr, "releasing context %s\n", ctx);
++
++    source_release(sp, cp, ctx);
+ }
+ 
+ static void
+-sources_containers(sources_t *sp, sds id, dictEntry *uniq)
++sources_containers(sources_t *sp, context_t *cp, sds id, dictEntry *uniq)
+ {
+     uv_mutex_lock(&sp->mutex);
+-    sp->count++;	/* issuing another PMWEBAPI request */
++    /* issuing another PMWEBAPI request */
++    sp->count++;
++    cp->refcount++;
+     uv_mutex_unlock(&sp->mutex);
+ 
+     pmWebGroupScrape(&settings, id, sp->params, sp);
+@@ -75,6 +88,7 @@ on_source_context(sds id, pmWebSource *s
+ 
+     cp->source = sdsdup(src->source);
+     cp->hostspec = sdsdup(src->hostspec);
++    cp->refcount = 1;
+ 
+     uv_mutex_lock(&sp->mutex);
+     dictAdd(sp->contexts, id, cp);
+@@ -84,7 +98,7 @@ on_source_context(sds id, pmWebSource *s
+     if (entry) {	/* source just discovered */
+ 	printf("%s %s\n", src->source, src->hostspec);
+ 	if (containers)
+-	    sources_containers(sp, id, entry);
++	    sources_containers(sp, cp, id, entry);
+     }
+ }
+ 
+@@ -116,7 +130,9 @@ static void
+ on_source_done(sds context, int status, sds message, void *arg)
+ {
+     sources_t	*sp = (sources_t *)arg;
+-    int		count = 0, release = 0;
++    context_t	*cp;
++    dictEntry	*he;
++    int		remove = 0, count = 0, release = 0;
+ 
+     if (pmDebugOptions.discovery)
+ 	fprintf(stderr, "done on context %s (sts=%d)\n", context, status);
+@@ -127,19 +143,26 @@ on_source_done(sds context, int status,
+     uv_mutex_lock(&sp->mutex);
+     if ((count = --sp->count) <= 0)
+ 	release = 1;
++    if ((he = dictFind(sp->contexts, context)) != NULL &&
++	(cp = (context_t *)dictGetVal(he)) != NULL &&
++	(--cp->refcount <= 0))
++	remove = 1;
+     uv_mutex_unlock(&sp->mutex);
+ 
++    if (remove) {
++	if (pmDebugOptions.discovery)
++	    fprintf(stderr, "remove context %s\n", context);
++	source_release(sp, cp, context);
++	dictDelete(sp->contexts, context);
++    }
++
+     if (release) {
+ 	unsigned long	cursor = 0;
+-
+-	if (pmDebugOptions.discovery)
+-	   fprintf(stderr, "release context %s (sts=%d)\n", context, status);
+ 	do {
+ 	    cursor = dictScan(sp->contexts, cursor, sources_release, NULL, sp);
+ 	} while (cursor);
+-    } else {
+-	if (pmDebugOptions.discovery)
+-	    fprintf(stderr, "not yet releasing (count=%d)\n", count);
++    } else if (pmDebugOptions.discovery) {
++	fprintf(stderr, "not yet releasing (count=%d)\n", count);
+     }
+ }
+ 
+@@ -190,6 +213,7 @@ sources_discovery_start(uv_timer_t *arg)
+     }
+ 
+     dictRelease(dp);
++    pmWebTimerClose();
+ }
+ 
+ /*
+@@ -214,8 +238,8 @@ source_discovery(int count, char **urls)
+     uv_mutex_init(&find.mutex);
+     find.urls = urls;
+     find.count = count;	/* at least one PMWEBAPI request for each url */
+-    find.uniq = dictCreate(&sdsDictCallBacks, NULL);
+-    find.params = dictCreate(&sdsDictCallBacks, NULL);
++    find.uniq = dictCreate(&sdsKeyDictCallBacks, NULL);
++    find.params = dictCreate(&sdsOwnDictCallBacks, NULL);
+     dictAdd(find.params, sdsnew("name"), sdsnew("containers.state.running"));
+     find.contexts = dictCreate(&sdsKeyDictCallBacks, NULL);
+ 
+@@ -230,6 +254,7 @@ source_discovery(int count, char **urls)
+ 
+     pmWebGroupSetup(&settings.module);
+     pmWebGroupSetEventLoop(&settings.module, loop);
++    pmWebTimerSetEventLoop(loop);
+ 
+     /*
+      * Start a one-shot timer to add a start function into the loop
+@@ -244,7 +269,9 @@ source_discovery(int count, char **urls)
+     /*
+      * Finished, release all resources acquired so far
+      */
++    pmWebGroupClose(&settings.module);
+     uv_mutex_destroy(&find.mutex);
++    dictRelease(find.uniq);
+     dictRelease(find.params);
+     dictRelease(find.contexts);
+     return find.status;
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/server.c pcp-5.3.7/src/pmproxy/src/server.c
+--- pcp-5.3.7.orig/src/pmproxy/src/server.c	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pmproxy/src/server.c	2022-10-19 21:31:43.831093354 +1100
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019,2021 Red Hat.
++ * Copyright (c) 2018-2019,2021-2022 Red Hat.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -310,17 +310,21 @@ on_write_callback(uv_callback_t *handle,
+     struct client		*client = (struct client *)request->writer.data;
+     int				sts;
+ 
++    (void)handle;
+     if (pmDebugOptions.af)
+ 	fprintf(stderr, "%s: client=%p\n", "on_write_callback", client);
+ 
+     if (client->stream.secure == 0) {
+ 	sts = uv_write(&request->writer, (uv_stream_t *)&client->stream,
+ 		 &request->buffer[0], request->nbuffers, request->callback);
+-	if (sts != 0)
+-	    fprintf(stderr, "%s: ERROR uv_write failed\n", "on_write_callback");
++	if (sts != 0) {
++	    pmNotifyErr(LOG_ERR, "%s: %s - uv_write failed [%s]: %s\n",
++			pmGetProgname(), "on_write_callback",
++			uv_err_name(sts), uv_strerror(sts));
++	    client_close(client);
++	}
+     } else
+ 	secure_client_write(client, request);
+-    (void)handle;
+     return 0;
+ }
+ 
+@@ -455,14 +459,16 @@ on_client_connection(uv_stream_t *stream
+     uv_handle_t		*handle;
+ 
+     if (status != 0) {
+-	fprintf(stderr, "%s: client connection failed: %s\n",
+-			pmGetProgname(), uv_strerror(status));
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++		    pmGetProgname(), "on_client_connection", "connection",
++		    uv_err_name(status), uv_strerror(status));
+ 	return;
+     }
+ 
+     if ((client = calloc(1, sizeof(*client))) == NULL) {
+-	fprintf(stderr, "%s: out-of-memory for new client\n",
+-			pmGetProgname());
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++			pmGetProgname(), "on_client_connection", "calloc",
++			"ENOMEM", strerror(ENOMEM));
+ 	return;
+     }
+     if (pmDebugOptions.context | pmDebugOptions.af)
+@@ -476,16 +482,18 @@ on_client_connection(uv_stream_t *stream
+ 
+     status = uv_tcp_init(proxy->events, &client->stream.u.tcp);
+     if (status != 0) {
+-	fprintf(stderr, "%s: client tcp init failed: %s\n",
+-			pmGetProgname(), uv_strerror(status));
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++		    pmGetProgname(), "on_client_connection", "uv_tcp_init",
++		    uv_err_name(status), uv_strerror(status));
+ 	client_put(client);
+ 	return;
+     }
+ 
+     status = uv_accept(stream, (uv_stream_t *)&client->stream.u.tcp);
+     if (status != 0) {
+-	fprintf(stderr, "%s: client tcp init failed: %s\n",
+-			pmGetProgname(), uv_strerror(status));
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++		    pmGetProgname(), "on_client_connection", "uv_accept",
++		    uv_err_name(status), uv_strerror(status));
+ 	client_put(client);
+ 	return;
+     }
+@@ -496,8 +504,9 @@ on_client_connection(uv_stream_t *stream
+     status = uv_read_start((uv_stream_t *)&client->stream.u.tcp,
+ 			    on_buffer_alloc, on_client_read);
+     if (status != 0) {
+-	fprintf(stderr, "%s: client read start failed: %s\n",
+-			pmGetProgname(), uv_strerror(status));
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++		    pmGetProgname(), "on_client_connection", "uv_read_start",
++		    uv_err_name(status), uv_strerror(status));
+ 	client_close(client);
+     }
+ }
+@@ -530,8 +539,9 @@ open_request_port(struct proxy *proxy, s
+ 
+     sts = uv_listen((uv_stream_t *)&stream->u.tcp, maxpending, on_client_connection);
+     if (sts != 0) {
+-	fprintf(stderr, "%s: socket listen error %s\n",
+-			pmGetProgname(), uv_strerror(sts));
++	pmNotifyErr(LOG_ERR, "%s: %s - uv_listen failed [%s]: %s\n",
++			pmGetProgname(), "open_request_port",
++			uv_err_name(sts), uv_strerror(sts));
+ 	uv_close(handle, NULL);
+ 	return -ENOTCONN;
+     }
+@@ -554,15 +564,23 @@ open_request_local(struct proxy *proxy,
+     uv_pipe_init(proxy->events, &stream->u.local, 0);
+     handle = (uv_handle_t *)&stream->u.local;
+     handle->data = (void *)proxy;
+-    uv_pipe_bind(&stream->u.local, name);
++    sts = uv_pipe_bind(&stream->u.local, name);
++    if (sts != 0) {
++	pmNotifyErr(LOG_ERR, "%s: %s - uv_pipe_bind %s failed [%s]: %s\n",
++			pmGetProgname(), "open_request_local", name,
++			uv_err_name(sts), uv_strerror(sts));
++	uv_close(handle, NULL);
++	return -ENOTCONN;
++    }
+ #ifdef HAVE_UV_PIPE_CHMOD
+     uv_pipe_chmod(&stream->u.local, UV_READABLE | UV_WRITABLE);
+ #endif
+ 
+     sts = uv_listen((uv_stream_t *)&stream->u.local, maxpending, on_client_connection);
+     if (sts != 0) {
+-	fprintf(stderr, "%s: local listen error %s\n",
+-			pmGetProgname(), uv_strerror(sts));
++	pmNotifyErr(LOG_ERR, "%s: %s - %s failed [%s]: %s\n",
++		    pmGetProgname(), "open_request_local", "uv_listen",
++		    uv_err_name(sts), uv_strerror(sts));
+ 	uv_close(handle, NULL);
+         return -ENOTCONN;
+     }

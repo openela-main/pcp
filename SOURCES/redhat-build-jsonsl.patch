@@ -1,0 +1,50 @@
+diff --git a/src/pmdas/podman/.gitignore b/src/pmdas/podman/.gitignore
+index a4f35e0f43..aea2c4052e 100644
+--- a/src/pmdas/podman/.gitignore
++++ b/src/pmdas/podman/.gitignore
+@@ -2,8 +2,6 @@ deps/
+ domain.h
+ pmdapodman
+ pmda_podman.so
+-jsonsl.c
+-jsonsl.h
+ help.dir
+ help.pag
+ exports
+diff --git a/src/pmdas/podman/GNUmakefile b/src/pmdas/podman/GNUmakefile
+index d6e58cfca5..1117a7a4e4 100644
+--- a/src/pmdas/podman/GNUmakefile
++++ b/src/pmdas/podman/GNUmakefile
+@@ -83,6 +83,7 @@ domain.h: ../../pmns/stdpmid
+ $(OBJECTS): domain.h
+ pmda.o: $(VERSION_SCRIPT)
+ pmda.o:	$(TOPDIR)/src/include/pcp/libpcp.h
++podman.o: $(JSONSL_HFILES)
+ 
+ check:: $(CFILES) $(HFILES)
+ 	$(CLINT) $^
+diff --git a/src/pmdas/root/.gitignore b/src/pmdas/root/.gitignore
+index 21f507f0dd..b78b1fd28a 100644
+--- a/src/pmdas/root/.gitignore
++++ b/src/pmdas/root/.gitignore
+@@ -1,8 +1,6 @@
+ deps/
+ domain.h
+ pmdaroot
+-jsonsl.c
+-jsonsl.h
+ help.dir
+ help.pag
+ pmns
+diff --git a/src/pmdas/root/GNUmakefile b/src/pmdas/root/GNUmakefile
+index ed01a18fb8..b02d4ea834 100644
+--- a/src/pmdas/root/GNUmakefile
++++ b/src/pmdas/root/GNUmakefile
+@@ -83,6 +83,7 @@ pmns :
+ 	$(LN_S) -f root_root pmns
+ 
+ lxc.o root.o:	$(TOPDIR)/src/include/pcp/libpcp.h
++podman.o:	$(JSONSL_HFILES)
+ 
+ check:: $(CFILES) $(HFILES)
+ 	$(CLINT) $^

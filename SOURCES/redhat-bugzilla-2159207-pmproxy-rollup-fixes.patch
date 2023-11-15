@@ -1,0 +1,2711 @@
+diff -Naurp pcp-5.3.7.orig/man/man3/pmwebapi.3 pcp-5.3.7/man/man3/pmwebapi.3
+--- pcp-5.3.7.orig/man/man3/pmwebapi.3	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/man/man3/pmwebapi.3	2023-07-05 13:43:00.404035611 +1000
+@@ -175,6 +175,10 @@ parameter.
+ The value passed in the request will be sent back in the
+ response \- all responses will be in JSON object form in
+ this case, with top level "client" and "result" fields.
++.PP
++REST API clients can optionally submit an URL-encoded query string
++in the body of the HTTP request unless otherwise noted.
++In this case the POST method must be used instead of the GET method.
+ .SS GET \fI/series/query\fR \- \fBpmSeriesQuery\fR(3)
+ .TS
+ box;
+diff -Naurp pcp-5.3.7.orig/qa/1604 pcp-5.3.7/qa/1604
+--- pcp-5.3.7.orig/qa/1604	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1604	2023-07-05 13:42:53.394025688 +1000
+@@ -0,0 +1,114 @@
++#!/bin/sh
++# PCP QA Test No. 1604
++# Exercise pmproxy REST API /series/values endpoint using curl(1).
++#
++# Copyright (c) 2022 Red Hat.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_check_series
++which jq >/dev/null 2>&1 || _notrun "jq not installed"
++
++_cleanup()
++{
++    cd $here
++    [ -n "$pmproxy_pid" ] && $signal -s TERM $pmproxy_pid
++    [ -n "$options" ] && redis-cli $options shutdown
++    if $need_restore
++    then
++	need_restore=false
++        _restore_config $PCP_SYSCONF_DIR/pmproxy
++    fi
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=1	# failure is the default!
++signal=$PCP_BINADM_DIR/pmsignal
++
++userid=`id -u`
++username=`id -u -n`
++hostname=`hostname`
++machineid=`_machine_id`
++domainname=`_domain_name`
++
++need_restore=false
++$sudo rm -rf $tmp $tmp.* $seq.full
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter_source()
++{
++    sed \
++        -e "s,$here,PATH,g" \
++        -e "s,$hostname,QAHOST,g" \
++    #end
++}
++
++_format_timestamps()
++{
++    jq '.[].timestamp |= ((. / 1000 | strftime("%Y-%m-%d %H:%M:%S")) + "." + (. * 1000 % 1000000 | tostring))'
++}
++
++# real QA test starts here
++_save_config $PCP_SYSCONF_DIR/pmproxy
++$sudo rm -f $PCP_SYSCONF_DIR/pmproxy/*
++need_restore=true
++
++echo "Start test Redis server ..."
++redisport=`_find_free_port`
++options="-p $redisport"
++redis-server --port $redisport --save "" > $tmp.redis 2>&1 &
++_check_redis_ping $redisport
++_check_redis_server $redisport
++echo
++
++_check_redis_server_version $redisport
++
++# import some well-known test data into Redis
++pmseries $options --load "$here/archives/bozo-disk" | _filter_source
++
++# start pmproxy
++proxyport=`_find_free_port`
++proxyopts="-p $proxyport -r $redisport -t"  # -Dseries,http,af
++pmproxy -f -U $username -x $seq.full -l $tmp.pmproxy.log $proxyopts &
++pmproxy_pid=$!
++
++# check pmproxy has started and is available for requests
++pmcd_wait -h localhost@localhost:$proxyport -v -t 5sec
++
++series1=`pmseries $options disk.all.read`
++[ -z "$series1" ] && _fail "Cannot find any timeseries matching disk.all.read"
++echo "Using series $series1 for disk.all.read"
++
++
++echo "== no interval" | tee -a $seq.full
++url="http://localhost:$proxyport/series/values?series=$series1&start=1489620673&finish=1489620793"
++echo "$url" >> $seq.full
++curl --get --silent "$url" | tee -a $seq.full | _format_timestamps
++
++echo "== 10s interval" | tee -a $seq.full
++url="http://localhost:$proxyport/series/values?series=$series1&start=1489620673&finish=1489620793&interval=10"
++echo "$url" >> $seq.full
++curl --get --silent "$url" | tee -a $seq.full | _format_timestamps
++
++echo "== 20s interval" | tee -a $seq.full
++url="http://localhost:$proxyport/series/values?series=$series1&start=1489620673&finish=1489620793&interval=20"
++echo "$url" >> $seq.full
++curl --get --silent "$url" | tee -a $seq.full | _format_timestamps
++cat $tmp.pmproxy.log >> $seq.full
++
++echo "== 20s interval, starting 2m before first sample in archive" | tee -a $seq.full
++url="http://localhost:$proxyport/series/values?series=$series1&start=1489620553&finish=1489620793&interval=20"
++echo "$url" >> $seq.full
++curl --get --silent "$url" | tee -a $seq.full | _format_timestamps
++
++
++cat $tmp.pmproxy.log >> $seq.full
++status=0
++exit
+diff -Naurp pcp-5.3.7.orig/qa/1604.out pcp-5.3.7/qa/1604.out
+--- pcp-5.3.7.orig/qa/1604.out	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1604.out	2023-07-05 13:42:53.394025688 +1000
+@@ -0,0 +1,204 @@
++QA output created by 1604
++Start test Redis server ...
++PING
++PONG
++
++pmseries: [Info] processed 21 archive records from PATH/archives/bozo-disk
++Using series c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9 for disk.all.read
++== no interval
++[
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:13.890965",
++    "value": "1537640"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:23.891401",
++    "value": "1538109"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:33.891167",
++    "value": "1538453"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:43.891451",
++    "value": "1538888"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:53.891930",
++    "value": "1546137"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:03.891452",
++    "value": "1552940"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:13.891363",
++    "value": "1563099"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:23.891335",
++    "value": "1572878"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:33.891427",
++    "value": "1581847"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:43.891381",
++    "value": "1592546"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:53.891394",
++    "value": "1598167"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:33:03.891344",
++    "value": "1598172"
++  }
++]
++== 10s interval
++[
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:13.890965",
++    "value": "1537640"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:23.891401",
++    "value": "1538109"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:33.891167",
++    "value": "1538453"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:43.891451",
++    "value": "1538888"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:53.891930",
++    "value": "1546137"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:03.891452",
++    "value": "1552940"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:13.891363",
++    "value": "1563099"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:23.891335",
++    "value": "1572878"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:33.891427",
++    "value": "1581847"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:43.891381",
++    "value": "1592546"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:53.891394",
++    "value": "1598167"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:33:03.891344",
++    "value": "1598172"
++  }
++]
++== 20s interval
++[
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:13.890965",
++    "value": "1537640"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:23.891401",
++    "value": "1538109"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:43.891451",
++    "value": "1538888"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:03.891452",
++    "value": "1552940"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:23.891335",
++    "value": "1572878"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:43.891381",
++    "value": "1592546"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:33:03.891344",
++    "value": "1598172"
++  }
++]
++== 20s interval, starting 2m before first sample in archive
++[
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:13.890965",
++    "value": "1537640"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:33.891167",
++    "value": "1538453"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:31:53.891930",
++    "value": "1546137"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:23.891335",
++    "value": "1572878"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:32:43.891381",
++    "value": "1592546"
++  },
++  {
++    "series": "c61812b8ed3def24fa1df3fbf8d19a96cea3e0f9",
++    "timestamp": "2017-03-15 23:33:03.891344",
++    "value": "1598172"
++  }
++]
+diff -Naurp pcp-5.3.7.orig/qa/1626 pcp-5.3.7/qa/1626
+--- pcp-5.3.7.orig/qa/1626	2023-07-05 13:42:25.513986223 +1000
++++ pcp-5.3.7/qa/1626	2023-07-05 13:42:53.394025688 +1000
+@@ -2,7 +2,7 @@
+ # PCP QA Test No. 1626
+ # pmproxy metrics
+ #
+-# Copyright (c) 2021 Red Hat.
++# Copyright (c) 2021-2022 Red Hat.
+ #
+ 
+ seq=`basename $0`
+@@ -71,10 +71,10 @@ val=`_probe_val pmproxy.pid`
+ pid=`_pmproxy_mainpid`
+ if [ "$pid" -eq "$val" ]; then :; else echo FAIL pid=$pid val=$val && exit; fi
+ 
+-echo === check initial pmproxy.webgroup metrics
+-for m in instmap labelsmap namesmap contextmap; do
+-    [ `_probe_val pmproxy.webgroup.$m.size` -eq 0 ] && continue
+-    echo FAILED pmproxy.webgroup.$m.size expected to be zero && exit
++echo === check initial pmproxy.map metrics
++for m in instance label metric context; do
++    [ `_probe_val pmproxy.map.$m.size` -eq 0 ] && continue
++    echo FAILED pmproxy.map.$m.size expected to be zero && exit
+ done
+ 
+ echo "=== start the metrics timer with a /metrics RESTAPI call"
+@@ -85,18 +85,18 @@ val=`curl -Gs 'http://localhost:44322/me
+ echo "=== wait for the maps to be updated"
+ count=0
+ while true; do
+-    sz=`_probe_val pmproxy.webgroup.namesmap.size`
++    sz=`_probe_val pmproxy.map.metric.size`
+     [ "$sz" -gt 0 ] && break
+     count=`expr $count + 1`
+     [ $count -gt 20 ] && echo FAILED sz=\"$sz\" after $count iterations && break
+     sleep 2
+ done
+ 
+-echo === pmproxy.webgroup map size metrics should now be nonzero
+-for m in instmap labelsmap namesmap contextmap; do
+-    sz=`_probe_val pmproxy.webgroup.$m.size`
++echo === pmproxy.map size metrics should now be nonzero
++for m in instance label metric context; do
++    sz=`_probe_val pmproxy.map.$m.size`
+     [ "$sz" -gt 0 ] && continue
+-    echo FAILED pmproxy.webgroup.$m.size is \"$sz\" but expected to be non-zero
++    echo FAILED pmproxy.map.$m.size is \"$sz\" but expected to be non-zero
+     exit
+ done
+ 
+diff -Naurp pcp-5.3.7.orig/qa/1626.out pcp-5.3.7/qa/1626.out
+--- pcp-5.3.7.orig/qa/1626.out	2023-07-05 13:42:25.513986223 +1000
++++ pcp-5.3.7/qa/1626.out	2023-07-05 13:42:53.394025688 +1000
+@@ -1,10 +1,10 @@
+ QA output created by 1626
+ == wait for pmproxy server metrics
+ === check pmproxy.pid
+-=== check initial pmproxy.webgroup metrics
++=== check initial pmproxy.map metrics
+ === start the metrics timer with a /metrics RESTAPI call
+ === wait for the maps to be updated
+-=== pmproxy.webgroup map size metrics should now be nonzero
++=== pmproxy.map size metrics should now be nonzero
+ === check pmproxy cpu counters
+ === check for discovery partial metadata reads
+ === check maxrss and datasz values
+diff -Naurp pcp-5.3.7.orig/qa/1689.out pcp-5.3.7/qa/1689.out
+--- pcp-5.3.7.orig/qa/1689.out	2023-07-05 13:42:25.513986223 +1000
++++ pcp-5.3.7/qa/1689.out	2023-07-05 13:42:53.394025688 +1000
+@@ -165,6 +165,30 @@ pmproxy.discover.throttled_changed_callb
+ Help:
+ Number of filesystem change callbacks that were ignored due to throttling
+ 
++pmproxy.map.context.size PMID: 4.1.6 [context map dictionary size]
++    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
++    Semantics: instant  Units: none
++Help:
++Number of entries in the context map dictionary
++
++pmproxy.map.instance.size PMID: 4.1.9 [instance names map dictionary size]
++    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
++    Semantics: instant  Units: none
++Help:
++Number of entries in the instance name map dictionary
++
++pmproxy.map.label.size PMID: 4.1.8 [label names map dictionary size]
++    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
++    Semantics: instant  Units: none
++Help:
++Number of entries in the labels map dictionary
++
++pmproxy.map.metric.size PMID: 4.1.7 [metric names map dictionary size]
++    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
++    Semantics: instant  Units: none
++Help:
++Number of entries in the metric names map dictionary
++
+ pmproxy.mem.datasz PMID: 4.1.5 [virtual data size]
+     Data Type: 64-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
+     Semantics: instant  Units: Kbyte
+@@ -291,26 +315,14 @@ pmproxy.series.values.calls PMID: 4.6.6
+ Help:
+ total RESTAPI calls to /series/values
+ 
+-pmproxy.webgroup.contextmap.size PMID: 4.7.1 [context map dictionary size]
+-    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
+-    Semantics: instant  Units: none
+-Help:
+-Number of entries in the context map dictionary
+-
+-pmproxy.webgroup.instmap.size PMID: 4.7.4 [instance name map dictionary size]
+-    Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
+-    Semantics: instant  Units: none
+-Help:
+-Number of entries in the instance name map dictionary
+-
+-pmproxy.webgroup.labelsmap.size PMID: 4.7.3 [labels map dictionary size]
++pmproxy.webgroup.gc.context.drops PMID: 4.7.2 [contexts dropped in last garbage collection]
+     Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
+     Semantics: instant  Units: none
+ Help:
+-Number of entries in the labels map dictionary
++Contexts dropped during most recent webgroup garbage collection
+ 
+-pmproxy.webgroup.namesmap.size PMID: 4.7.2 [metric names map dictionary size]
++pmproxy.webgroup.gc.context.scans PMID: 4.7.1 [contexts scanned in last garbage collection]
+     Data Type: 32-bit unsigned int  InDom: PM_INDOM_NULL 0xffffffff
+     Semantics: instant  Units: none
+ Help:
+-Number of entries in the metric names map dictionary
++Contexts scanned during most recent webgroup garbage collection
+diff -Naurp pcp-5.3.7.orig/qa/1691 pcp-5.3.7/qa/1691
+--- pcp-5.3.7.orig/qa/1691	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1691	2023-07-05 13:42:53.404025702 +1000
+@@ -0,0 +1,74 @@
++#!/bin/sh
++# Exercise pmseries handling of loading archives and ignoring metrics thereof.
++#
++# Copyright (c) 2022 Red Hat.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_check_series
++
++_cleanup()
++{
++    [ -n "$options" ] && redis-cli $options shutdown
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=1	# failure is the default!
++hostname=`pmhostname`
++redisport=`_find_free_port`
++options="-p $redisport"
++
++$sudo rm -rf $tmp $tmp.* $seq.full
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter_source()
++{
++    sed \
++	-e "s,$here,PATH,g" \
++	-e "s,$hostname,QAHOST,g" \
++    #end
++}
++
++# real QA test starts here
++cat > $tmp.default.conf <<EOF
++EOF
++
++cat > $tmp.ignore.conf <<EOF
++[discover]
++exclude.metrics = kernel.all.cpu.i*, kernel.all.cpu.user
++EOF
++
++echo "Start test Redis server ..."
++redis-server --port $redisport --save "" > $tmp.redis 2>&1 &
++_check_redis_ping $redisport
++_check_redis_server $redisport
++
++_check_redis_server_version $redisport
++
++echo && echo "Load archive using default config"
++pmseries $options -c $tmp.default.conf --load "{source.path: \"$here/archives/viewqa1\"}" | _filter_source
++
++echo && echo "Query series kernel.*"
++pmseries $options -m `pmseries $options 'kernel.*'`
++
++
++echo && echo "Clear Redis DB"
++redis-cli $options flushall
++
++echo && echo "Load archive using: exclude.metrics = kernel.all.cpu.i*, kernel.all.cpu.user"
++pmseries $options -c $tmp.ignore.conf --load "{source.path: \"$here/archives/viewqa1\"}" | _filter_source
++
++echo && echo "Query series kernel.*"
++pmseries $options -m `pmseries $options 'kernel.*'`
++
++# success, all done
++status=0
++exit
+diff -Naurp pcp-5.3.7.orig/qa/1691.out pcp-5.3.7/qa/1691.out
+--- pcp-5.3.7.orig/qa/1691.out	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1691.out	2023-07-05 13:42:53.404025702 +1000
+@@ -0,0 +1,44 @@
++QA output created by 1691
++Start test Redis server ...
++PING
++PONG
++
++Load archive using default config
++pmseries: [Info] processed 151 archive records from PATH/archives/viewqa1
++
++Query series kernel.*
++
++8b013dfdb7214e020848d0a4a9952ff2a3f777cc
++    Metric: kernel.all.cpu.idle
++
++95135e6cb517cb50fd0c9e28985b944d88850332
++    Metric: kernel.all.cpu.intr
++
++a046e8429bb493a2b40fc23857157a262649d02d
++    Metric: kernel.all.cpu.wait.total
++
++d38aff137f65367ce1aec169be675021a3ebb25c
++    Metric: kernel.all.cpu.nice
++
++f0983eec7e7c01361317266c4259467d35e0ec3e
++    Metric: kernel.all.cpu.sys
++
++e7aa0bd3dc7afc149badec1808fa4fa5c63a7fa3
++    Metric: kernel.all.cpu.user
++
++Clear Redis DB
++OK
++
++Load archive using: exclude.metrics = kernel.all.cpu.i*, kernel.all.cpu.user
++pmseries: [Info] processed 151 archive records from PATH/archives/viewqa1
++
++Query series kernel.*
++
++a046e8429bb493a2b40fc23857157a262649d02d
++    Metric: kernel.all.cpu.wait.total
++
++f0983eec7e7c01361317266c4259467d35e0ec3e
++    Metric: kernel.all.cpu.sys
++
++d38aff137f65367ce1aec169be675021a3ebb25c
++    Metric: kernel.all.cpu.nice
+diff -Naurp pcp-5.3.7.orig/qa/1697 pcp-5.3.7/qa/1697
+--- pcp-5.3.7.orig/qa/1697	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1697	2023-07-05 13:43:00.404035611 +1000
+@@ -0,0 +1,134 @@
++#!/bin/sh
++# PCP QA Test No. 1697
++# Valgrind pmproxy REST API testing.
++# Based on 1601 and 1696
++
++# Copyright (c) 2022 Red Hat.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++. ./common.python
++
++
++_check_valgrind
++_check_series
++_check_redis_server_version_offline
++
++_cleanup()
++{
++    cd $here
++    [ -n "$options" ] && redis-cli $options shutdown
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=1	# failure is the default!
++username=`id -u -n`
++$sudo rm -rf $tmp $tmp.* $seq.full
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++# create a pmproxy configuration
++cat <<EOF > $tmp.conf
++[pmproxy]
++pcp.enabled = true
++http.enabled = true
++[pmseries]
++enabled = true
++EOF
++
++_filter_source()
++{
++    sed \
++        -e "s,$here,PATH,g" \
++        -e "s,$hostname,QAHOST,g" \
++    #end
++}
++
++_filter_proxyport()
++{
++    sed \
++	-e "s/ FD $proxyport / FD PORT /g" \
++	-e '/PORT ipv6 /d' \
++    # end
++}
++
++# real QA test starts here
++echo "Start test Redis server ..."
++redisport=`_find_free_port`
++options="-p $redisport"
++redis-server --port $redisport --save "" > $tmp.redis 2>&1 &
++_check_redis_ping $redisport
++_check_redis_server $redisport
++echo
++
++_check_redis_server_version $redisport
++
++# import some well-known test data into Redis
++pmseries $options --load "$here/archives/proc" | _filter_source
++
++# start pmproxy
++mkdir -p $tmp.pmproxy/pmproxy
++export PCP_RUN_DIR=$tmp.pmproxy
++export PCP_TMP_DIR=$tmp.pmproxy
++proxyport=`_find_free_port`
++$_valgrind_clean_assert pmproxy -f -p $proxyport -r $redisport -U $username -l- -c $tmp.conf >$tmp.valout 2>$tmp.valerr &
++pid=$!
++
++# valgrind takes awhile to fire up
++i=0
++while [ $i -lt 40 ]
++do
++    $PCP_BINADM_DIR/telnet-probe -c localhost $proxyport && break
++    sleep 1
++    i=`expr $i + 1`
++done
++if $PCP_BINADM_DIR/telnet-probe -c localhost $proxyport
++then
++    echo "Startup took $i secs" >>$seq.full
++else
++    echo "Arrgh: valgrind failed start pmproxy and get port $proxyport ready after 30 secs"
++    exit
++fi
++
++series1=`pmseries $options disk.all.read`
++[ -z "$series1" ] && _fail "Cannot find any timeseries matching disk.all.read"
++echo "Using series $series1 for disk.all.read"
++
++series2=`pmseries $options disk.dev.read`
++[ -z "$series2" ] && _fail "Cannot find any timeseries matching disk.dev.read"
++echo "Using series $series2 for disk.dev.read"
++
++series3=`pmseries $options kernel.all.uptime`
++[ -z "$series3" ] && _fail "Cannot find any timeseries matching kernel.all.uptime"
++echo "Using series $series3 for kernel.all.uptime"
++
++
++echo "== verify metric descs" | tee -a $seq.full
++curl --silent "http://localhost:$proxyport/series/descs" -d "series=$series1,$series2,$series3" | tee -a $seq.full | pmjson
++
++echo "== verify metric names" | tee -a $seq.full
++curl --silent "http://localhost:$proxyport/series/metrics" -d "series=$series1,$series2,$series3" | tee -a $seq.full | pmjson
++
++echo "== verify metric labels" | tee -a $seq.full
++curl --silent "http://localhost:$proxyport/series/labels" -d "series=$series1,$series3" | tee -a $seq.full | pmjson
++
++echo "== verify metric insts" | tee -a $seq.full
++curl --silent "http://localhost:$proxyport/series/instances" -d "series=$series2" | tee -a $seq.full | pmjson
++
++# valgrind takes awhile to shutdown too
++pmsignal $pid
++pmsleep 3.5
++echo "=== valgrind stdout ===" | tee -a $seq.full
++cat $tmp.valout | _filter_valgrind
++
++echo "=== valgrind stderr ===" | tee -a $seq.full
++cat $tmp.valerr | _filter_pmproxy_log | grep -v "Cannot connect to Redis" | _filter_proxyport
++
++# success, all done
++status=0
++exit
+diff -Naurp pcp-5.3.7.orig/qa/1697.out pcp-5.3.7/qa/1697.out
+--- pcp-5.3.7.orig/qa/1697.out	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/1697.out	2023-07-05 13:43:00.414035625 +1000
+@@ -0,0 +1,93 @@
++QA output created by 1697
++Start test Redis server ...
++PING
++PONG
++
++pmseries: [Info] processed 5 archive records from PATH/archives/proc
++Using series 1440b8b8bfe69465340eb934e9086ae8212f3cff for disk.all.read
++Using series 605fc77742cd0317597291329561ac4e50c0dd12 for disk.dev.read
++Using series 01d8bc7fa75aaff98a08aa0b1c0f2394368d5183 for kernel.all.uptime
++== verify metric descs
++[
++    {
++        "series": "1440b8b8bfe69465340eb934e9086ae8212f3cff",
++        "source": "2cd6a38f9339f2dd1f0b4775bda89a9e7244def6",
++        "pmid": "60.0.24",
++        "indom": "none",
++        "semantics": "counter",
++        "type": "u64",
++        "units": "count"
++    },
++    {
++        "series": "605fc77742cd0317597291329561ac4e50c0dd12",
++        "source": "2cd6a38f9339f2dd1f0b4775bda89a9e7244def6",
++        "pmid": "60.0.4",
++        "indom": "60.1",
++        "semantics": "counter",
++        "type": "u32",
++        "units": "count"
++    },
++    {
++        "series": "01d8bc7fa75aaff98a08aa0b1c0f2394368d5183",
++        "source": "2cd6a38f9339f2dd1f0b4775bda89a9e7244def6",
++        "pmid": "60.26.0",
++        "indom": "none",
++        "semantics": "instant",
++        "type": "u32",
++        "units": "sec"
++    }
++]
++== verify metric names
++[
++    {
++        "series": "1440b8b8bfe69465340eb934e9086ae8212f3cff",
++        "name": "disk.all.read"
++    },
++    {
++        "series": "605fc77742cd0317597291329561ac4e50c0dd12",
++        "name": "disk.dev.read"
++    },
++    {
++        "series": "01d8bc7fa75aaff98a08aa0b1c0f2394368d5183",
++        "name": "kernel.all.uptime"
++    }
++]
++== verify metric labels
++[
++    {
++        "series": "1440b8b8bfe69465340eb934e9086ae8212f3cff",
++        "labels": {
++            "hostname": "bozo-laptop"
++        }
++    },
++    {
++        "series": "01d8bc7fa75aaff98a08aa0b1c0f2394368d5183",
++        "labels": {
++            "hostname": "bozo-laptop"
++        }
++    }
++]
++== verify metric insts
++[
++    {
++        "series": "605fc77742cd0317597291329561ac4e50c0dd12",
++        "source": "2cd6a38f9339f2dd1f0b4775bda89a9e7244def6",
++        "instance": "c3795d8b757506a2901c6b08b489ba56cae7f0d4",
++        "id": 0,
++        "name": "sda"
++    }
++]
++=== valgrind stdout ===
++=== valgrind stderr ===
++Log for pmproxy on HOST started DATE
++
++pmproxy: PID = PID
++pmproxy request port(s):
++  sts fd   port  family address
++  === ==== ===== ====== =======
++ok FD unix UNIX_DOMAIN_SOCKET
++ok FD PORT inet INADDR_ANY
++[DATE] pmproxy(PID) Info: pmproxy caught SIGTERM
++[DATE] pmproxy(PID) Info: pmproxy Shutdown
++
++Log finished DATE
+diff -Naurp pcp-5.3.7.orig/qa/common.check pcp-5.3.7/qa/common.check
+--- pcp-5.3.7.orig/qa/common.check	2023-07-05 13:42:25.513986223 +1000
++++ pcp-5.3.7/qa/common.check	2023-07-05 13:42:53.404025702 +1000
+@@ -1226,7 +1226,7 @@ _wait_for_pmproxy_metrics()
+ {
+     _n=0
+     while true; do
+-	pminfo -f pmproxy.pid pmproxy.cpu pmproxy.webgroup.instmap.size >/dev/null 2>&1 && return 0
++	pminfo -f pmproxy.pid pmproxy.cpu pmproxy.map.instance.size >/dev/null 2>&1 && return 0
+ 	sleep 0.25
+ 	_n=`expr $_n + 1`
+ 	[ $_n -lt 20 ] && continue
+diff -Naurp pcp-5.3.7.orig/qa/group pcp-5.3.7/qa/group
+--- pcp-5.3.7.orig/qa/group	2023-07-05 13:42:25.523986237 +1000
++++ pcp-5.3.7/qa/group	2023-07-05 13:43:00.414035625 +1000
+@@ -1869,6 +1869,7 @@ x11
+ 1601 pmseries pmproxy local
+ 1602 pmproxy local
+ 1603 pmproxy local
++1604 pmseries pmproxy local
+ 1608 pmproxy local
+ 1613 pmda.linux kernel local
+ 1622:retired local
+@@ -1890,10 +1891,12 @@ x11
+ 1688 pmieconf local
+ 1689 pmproxy libpcp_web local
+ 1690 pmseries local
++1691 pmseries local
+ 1692 pmda.pmcd local
+ 1694 pidstat local python pcp pmlogextract
+ 1695 pmproxy valgrind local
+ 1696 pmproxy valgrind local
++1697 pmproxy valgrind local
+ 1700 pmda.bpftrace local python
+ 1701 pmda.bpftrace local python
+ 1702 pmda.bpftrace local python
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/load.c pcp-5.3.7/src/libpcp_web/src/load.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/load.c	2023-07-05 13:42:25.523986237 +1000
++++ pcp-5.3.7/src/libpcp_web/src/load.c	2023-07-05 13:42:53.414025716 +1000
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2021 Red Hat.
++ * Copyright (c) 2017-2022 Red Hat.
+  *
+  * This library is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -15,6 +15,7 @@
+ #include <limits.h>
+ #include <assert.h>
+ #include <ctype.h>
++#include <fnmatch.h>
+ #include "encoding.h"
+ #include "discover.h"
+ #include "schema.h"
+@@ -93,7 +94,7 @@ load_prepare_metric(const char *name, vo
+     if ((sts = pmLookupName(1, &name, &pmid)) < 0) {
+ 	if (sts == PM_ERR_IPC)
+ 	    cp->setup = 0;
+-	infofmt(msg, "failed to lookup metric name (pmid=%s): %s",
++	infofmt(msg, "failed to lookup metric name (name=%s): %s",
+ 		name, pmErrStr_r(sts, pmmsg, sizeof(pmmsg)));
+ 	batoninfo(baton, PMLOG_WARNING, msg);
+     } else if ((hname = strdup(name)) == NULL) {
+@@ -557,48 +558,91 @@ server_cache_update_done(void *arg)
+     server_cache_window(baton);
+ }
+ 
+-void
+-server_cache_window(void *arg)
++#if defined(HAVE_LIBUV)
++/* this function runs in a worker thread */
++static void
++fetch_archive(uv_work_t *req)
+ {
+-    seriesLoadBaton	*baton = (seriesLoadBaton *)arg;
++    seriesLoadBaton	*baton = (seriesLoadBaton *)req->data;
+     seriesGetContext	*context = &baton->pmapi;
+-    struct timeval	*finish = &baton->timing.end;
++    context_t		*cp = &context->context;
+     pmResult		*result;
+     int			sts;
+ 
+-    seriesBatonCheckMagic(baton, MAGIC_LOAD, "server_cache_window");
+-    seriesBatonCheckCount(context, "server_cache_window");
+     assert(context->result == NULL);
++    if ((context->error = sts = pmUseContext(cp->context)) >= 0)
++	if ((context->error = sts = pmFetchArchive(&result)) >= 0)
++	    context->result = result;
++}
+ 
+-    if (pmDebugOptions.series)
+-	fprintf(stderr, "server_cache_window: fetching next result\n");
+-
+-    seriesBatonReference(context, "server_cache_window");
+-    context->done = server_cache_series_finished;
++/* this function runs in the main thread */
++static void
++fetch_archive_done(uv_work_t *req, int status)
++{
++    seriesLoadBaton	*baton = (seriesLoadBaton *)req->data;
++    seriesGetContext	*context = &baton->pmapi;
++    struct timeval	*finish = &baton->timing.end;
++    int 		sts = context->error;
+ 
+-    if ((sts = pmFetchArchive(&result)) >= 0) {
+-	context->result = result;
+-	if (finish->tv_sec > result->timestamp.tv_sec ||
+-	    (finish->tv_sec == result->timestamp.tv_sec &&
+-	     finish->tv_usec >= result->timestamp.tv_usec)) {
++    free(req);
++    if (context->loaded) {
++	assert(context->result == NULL);
++        doneSeriesGetContext(context, "fetch_archive_done");
++    } else if (sts >= 0) {
++	if (finish->tv_sec > context->result->timestamp.tv_sec ||
++	    (finish->tv_sec == context->result->timestamp.tv_sec &&
++	     finish->tv_usec >= context->result->timestamp.tv_usec)) {
+ 	    context->done = server_cache_update_done;
+-	    series_cache_update(baton, NULL);
++	    series_cache_update(baton, baton->exclude_pmids);
+ 	}
+ 	else {
+ 	    if (pmDebugOptions.series)
+-		fprintf(stderr, "server_cache_window: end of time window\n");
++		fprintf(stderr, "%s: time window end\n", "fetch_archive_done");
+ 	    sts = PM_ERR_EOL;
+-	    pmFreeResult(result);
++	    pmFreeResult(context->result);
+ 	    context->result = NULL;
+ 	}
+     }
+ 
+     if (sts < 0) {
+-	context->error = sts;
+ 	if (sts != PM_ERR_EOL)
+ 	    baton->error = sts;
+-	doneSeriesGetContext(context, "server_cache_window");
++	doneSeriesGetContext(context, "fetch_archive_done");
+     }
++
++    doneSeriesLoadBaton(baton, "fetch_archive_done");
++}
++#endif
++
++void
++server_cache_window(void *arg)
++{
++    seriesLoadBaton	*baton = (seriesLoadBaton *)arg;
++    seriesGetContext	*context = &baton->pmapi;
++
++    seriesBatonCheckMagic(baton, MAGIC_LOAD, "server_cache_window");
++    seriesBatonCheckCount(context, "server_cache_window");
++    assert(context->result == NULL);
++
++    if (pmDebugOptions.series)
++	fprintf(stderr, "%s: fetching next result\n", "server_cache_window");
++
++#if defined(HAVE_LIBUV)
++    seriesBatonReference(baton, "server_cache_window");
++    seriesBatonReference(context, "server_cache_window");
++    context->done = server_cache_series_finished;
++
++    /*
++     * We must perform pmFetchArchive(3) in a worker thread
++     * because it contains blocking (synchronous) I/O calls
++     */
++    uv_work_t *req = malloc(sizeof(uv_work_t));
++    req->data = baton;
++    uv_queue_work(uv_default_loop(), req, fetch_archive, fetch_archive_done);
++#else
++    baton->error = -ENOTSUP;
++    server_cache_series_finished(arg);
++#endif
+ }
+ 
+ static void
+@@ -640,7 +684,35 @@ add_source_metric(seriesLoadBaton *baton
+ }
+ 
+ static void
+-load_prepare_metrics(seriesLoadBaton *baton)
++load_prepare_exclude_metric(const char *name, void *arg)
++{
++    seriesLoadBaton	*baton = (seriesLoadBaton *)arg;
++    char		pmmsg[PM_MAXERRMSGLEN];
++    sds			msg;
++    pmID		pmid;
++    int			i;
++    int			sts;
++
++    /*
++     * check if this metric name matches any exclude pattern
++     * if it matches, add the pmID of this metric to the exclude list
++     */
++    for (i = 0; i < baton->exclude_npatterns; i++) {
++	if (fnmatch(baton->exclude_patterns[i], name, 0) == 0) {
++	    if ((sts = pmLookupName(1, &name, &pmid)) < 0) {
++		infofmt(msg, "failed to lookup metric name (name=%s): %s",
++				name, pmErrStr_r(sts, pmmsg, sizeof(pmmsg)));
++		batoninfo(baton, PMLOG_WARNING, msg);
++	    } else {
++		dictAdd(baton->exclude_pmids, &pmid, NULL);
++	    }
++	    break;
++	}
++    }
++}
++
++static void
++load_prepare_included_metrics(seriesLoadBaton *baton)
+ {
+     context_t		*cp = &baton->pmapi.context;
+     const char		**metrics = baton->metrics;
+@@ -659,6 +731,57 @@ load_prepare_metrics(seriesLoadBaton *ba
+     }
+ }
+ 
++static void
++load_prepare_excluded_metrics(seriesLoadBaton *baton)
++{
++    pmSeriesModule	*module = (pmSeriesModule *)baton->module;
++    seriesModuleData	*data = getSeriesModuleData(module);
++    char		pmmsg[PM_MAXERRMSGLEN];
++    sds			msg;
++    int			i, sts;
++    sds			exclude_metrics_option;
++    sds			*patterns = NULL;
++    int			npatterns = 0;
++
++    if (data == NULL) {
++	baton->error = -ENOMEM;
++	return;
++    }
++
++    if (!(exclude_metrics_option = pmIniFileLookup(data->config, "discover", "exclude.metrics"))) {
++	/* option not set, using default value of no excluded metrics */
++	return;
++    }
++
++    if (!(patterns = sdssplitlen(exclude_metrics_option, sdslen(exclude_metrics_option), ",", 1, &npatterns))) {
++	/* empty option, ignore */
++	return;
++    }
++
++    /* trim each comma-separated entry */
++    for (i = 0; i < npatterns; i++)
++	patterns[i] = sdstrim(patterns[i], " ");
++
++    baton->exclude_patterns = patterns;
++    baton->exclude_npatterns = npatterns;
++
++    /*
++     * unfortunately we need to traverse the entire PMNS here to match the patterns (e.g. proc.*)
++     * against metrics and gather a list of pmIDs to exclude
++     *
++     * alternatively pattern matching could happen in series_cache_update(), however that will come
++     * with a performance penalty (looping through patterns + fnmatch() each in a hot path vs.
++     * simple pmID lookup in a dict)
++     */
++    if ((sts = pmTraversePMNS_r("", load_prepare_exclude_metric, baton)) < 0) {
++	infofmt(msg, "PMNS traversal failed: %s", pmErrStr_r(sts, pmmsg, sizeof(pmmsg)));
++	batoninfo(baton, PMLOG_WARNING, msg);
++    }
++
++    sdsfreesplitres(patterns, npatterns);
++    baton->exclude_patterns = NULL;
++}
++
+ static int
+ load_prepare_timing(seriesLoadBaton *baton)
+ {
+@@ -812,11 +935,12 @@ doneSeriesGetContext(seriesGetContext *c
+     if (seriesBatonDereference(context, caller) && context->done != NULL)
+ 	context->done(baton);
+ 
+-    if (context->error) {
++    if (context->error && !context->loaded) {
+ 	char		pmmsg[PM_MAXERRMSGLEN];
+ 	sds		msg;
+ 
+ 	if (context->error == PM_ERR_EOL) {
++	    context->loaded = 1;
+ 	    infofmt(msg, "processed %llu archive records from %s",
+ 			context->count, context->context.name.sds);
+ 	    batoninfo(baton, PMLOG_INFO, msg);
+@@ -893,7 +1017,8 @@ connect_pmapi_source_service(void *arg)
+     } else if (baton->error == 0) {
+ 	/* setup metric and time-based filtering for source load */
+ 	load_prepare_timing(baton);
+-	load_prepare_metrics(baton);
++	load_prepare_included_metrics(baton);
++	load_prepare_excluded_metrics(baton);
+     }
+     series_load_end_phase(baton);
+ }
+@@ -966,6 +1091,7 @@ initSeriesLoadBaton(seriesLoadBaton *bat
+ 
+     baton->errors = dictCreate(&intKeyDictCallBacks, baton);
+     baton->wanted = dictCreate(&intKeyDictCallBacks, baton);
++    baton->exclude_pmids = dictCreate(&intKeyDictCallBacks, baton);
+ }
+ 
+ void
+@@ -979,6 +1105,7 @@ freeSeriesLoadBaton(seriesLoadBaton *bat
+     freeSeriesGetContext(&baton->pmapi, 0);
+     dictRelease(baton->errors);
+     dictRelease(baton->wanted);
++    dictRelease(baton->exclude_pmids);
+     free(baton->metrics);
+ 
+     memset(baton, 0, sizeof(*baton));
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/query.c pcp-5.3.7/src/libpcp_web/src/query.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/query.c	2023-07-05 13:42:25.523986237 +1000
++++ pcp-5.3.7/src/libpcp_web/src/query.c	2023-07-05 13:42:53.414025716 +1000
+@@ -49,7 +49,7 @@ typedef struct seriesGetLookup {
+ } seriesGetLookup;
+ 
+ typedef struct seriesGetQuery {
+-    node_t		root;
++    node_t		*root;
+     timing_t		timing;
+ } seriesGetQuery;
+ 
+@@ -63,16 +63,14 @@ typedef struct seriesQueryBaton {
+     void		*userdata;
+     redisSlots          *slots;
+     int			error;
+-    union {
+-	seriesGetLookup	lookup;
+-	seriesGetQuery	query;
+-    } u;
++    seriesGetLookup	lookup;
++    seriesGetQuery	query;
+ } seriesQueryBaton;
+ 
+ static void series_pattern_match(seriesQueryBaton *, node_t *);
+ static int series_union(series_set_t *, series_set_t *);
+ static int series_intersect(series_set_t *, series_set_t *);
+-static int series_calculate(seriesQueryBaton *, node_t *, int);
++static int series_calculate(node_t *, int, void *);
+ static void series_redis_hash_expression(seriesQueryBaton *, char *, int);
+ static void series_node_get_metric_name(seriesQueryBaton *, seriesGetSID *, series_sample_set_t *);
+ static void series_node_get_desc(seriesQueryBaton *, sds, series_sample_set_t *);
+@@ -88,8 +86,8 @@ static void
+ initSeriesGetQuery(seriesQueryBaton *baton, node_t *root, timing_t *timing)
+ {
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "initSeriesGetQuery");
+-    baton->u.query.root = *root;
+-    baton->u.query.timing = *timing;
++    baton->query.root = root;
++    baton->query.timing = *timing;
+ }
+ 
+ static int
+@@ -106,18 +104,21 @@ skip_free_value_set(node_t *np)
+ }
+ 
+ static void
+-freeSeriesQueryNode(node_t *np, int level)
++freeSeriesQueryNode(node_t *np)
+ {
+     int		n_samples;
++
+     if (np == NULL)
+ 	return;
++
+     if (skip_free_value_set(np) != 0) {
+ 	int i, j, k;
++
+ 	for (i = 0; i < np->value_set.num_series; i++) {
+ 	    n_samples = np->value_set.series_values[i].num_samples;
+ 	    if (n_samples < 0) n_samples = -n_samples;
+ 	    for (j = 0; j < n_samples; j++) {
+-		for (k=0; k < np->value_set.series_values[i].series_sample[j].num_instances; k++) {
++		for (k = 0; k < np->value_set.series_values[i].series_sample[j].num_instances; k++) {
+ 		    sdsfree(np->value_set.series_values[i].series_sample[j].series_instance[k].timestamp);
+ 		    sdsfree(np->value_set.series_values[i].series_sample[j].series_instance[k].series);
+ 		    sdsfree(np->value_set.series_values[i].series_sample[j].series_instance[k].data);
+@@ -127,13 +128,22 @@ freeSeriesQueryNode(node_t *np, int leve
+ 	    sdsfree(np->value_set.series_values[i].sid->name);
+ 	    free(np->value_set.series_values[i].sid);
+ 	    free(np->value_set.series_values[i].series_sample);
++	    sdsfree(np->value_set.series_values[i].series_desc.indom);
++	    sdsfree(np->value_set.series_values[i].series_desc.pmid);
++	    sdsfree(np->value_set.series_values[i].series_desc.semantics);
++	    sdsfree(np->value_set.series_values[i].series_desc.source);
++	    sdsfree(np->value_set.series_values[i].series_desc.type);
++	    sdsfree(np->value_set.series_values[i].series_desc.units);
+ 	}
+ 	free(np->value_set.series_values);
+     }
+-    freeSeriesQueryNode(np->left, level+1);
+-    freeSeriesQueryNode(np->right, level+1);
+-    if (level != 0)
+-        free(np);
++    freeSeriesQueryNode(np->left);
++    freeSeriesQueryNode(np->right);
++    if (np->result.nseries)
++	free(np->result.series);
++    sdsfree(np->value);
++    sdsfree(np->key);
++    free(np);
+ }
+ 
+ static void
+@@ -141,9 +151,7 @@ freeSeriesGetQuery(seriesQueryBaton *bat
+ {
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "freeSeriesGetQuery");
+     seriesBatonCheckCount(baton, "freeSeriesGetQuery");
+-    if (baton->error == 0) {
+-    	freeSeriesQueryNode(&baton->u.query.root, 0);
+-    }
++    freeSeriesQueryNode(baton->query.root);
+     memset(baton, 0, sizeof(seriesQueryBaton));
+     free(baton);
+ }
+@@ -226,15 +234,15 @@ initSeriesGetLookup(seriesQueryBaton *ba
+ 
+     /* pattern matching parameter, optional */
+     if (nseries == 0 && series != NULL)
+-	baton->u.lookup.pattern = *series;
++	baton->lookup.pattern = *series;
+     /* else lookup array of individual sids */
+     for (i = 0; i < nseries; i++) {
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	initSeriesGetSID(sid, series[i], 0, baton);
+     }
+-    baton->u.lookup.nseries = nseries;
+-    baton->u.lookup.func = func;
+-    baton->u.lookup.map = map;
++    baton->lookup.nseries = nseries;
++    baton->lookup.func = func;
++    baton->lookup.map = map;
+ }
+ 
+ static void
+@@ -247,9 +255,9 @@ freeSeriesGetLookup(seriesQueryBaton *ba
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "freeSeriesGetLookup");
+     seriesBatonCheckCount(baton, "freeSeriesGetLookup");
+ 
+-    nseries = baton->u.lookup.nseries;
++    nseries = baton->lookup.nseries;
+     for (i = 0; i < nseries; i++) {
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	sdsfree(sid->name);
+     }
+     bytes = sizeof(seriesQueryBaton) + (nseries * sizeof(seriesGetSID));
+@@ -400,7 +408,7 @@ extract_mapping(seriesQueryBaton *baton,
+ 
+     if (reply->type == REDIS_REPLY_STRING) {
+ 	key = sdsnewlen(reply->str, reply->len);
+-	entry = redisMapLookup(baton->u.lookup.map, key);
++	entry = redisMapLookup(baton->lookup.map, key);
+ 	sdsfree(key);
+ 	if (entry != NULL) {
+ 	    key = redisMapValue(entry);
+@@ -553,7 +561,14 @@ static int
+ use_next_sample(seriesSampling *sampling)
+ {
+     /* if the next timestamp is past our goal, use the current value */
+-    if (pmTimespec_cmp(&sampling->next_timespec, &sampling->goal) > 0) {
++    double goal_delta = pmTimespec_delta(&sampling->next_timespec, &sampling->goal);
++    if (goal_delta > 0) {
++	/* if the goal significantly lags behind, reset it */
++	/* this can happen when start < first sample or when there are gaps in the series */
++	if (goal_delta > 2 * sampling->delta.tv_sec) {
++	    sampling->goal = sampling->next_timespec;
++	}
++
+ 	/* selected a value for this interval so move the goal posts */
+ 	pmTimespec_add(&sampling->goal, &sampling->delta);
+ 	return 0;
+@@ -567,7 +582,7 @@ series_values_reply(seriesQueryBaton *ba
+ {
+     seriesSampling	sampling = {0};
+     redisReply		*reply, *sample, **elements;
+-    timing_t		*tp = &baton->u.query.timing;
++    timing_t		*tp = &baton->query.timing;
+     int			n, sts, next, nelements;
+     sds			msg, save_timestamp;
+ 
+@@ -1360,14 +1375,14 @@ static void
+ on_series_solve_setup(void *arg)
+ {
+     if (pmDebugOptions.query)
+-	fprintf(stderr, "on_series_solve_setup\n");
++	fprintf(stderr, "%s\n", "on_series_solve_setup");
+ }
+ 
+ static void
+ on_series_solve_log(pmLogLevel level, sds message, void *arg)
+ {
+     if (pmDebugOptions.query)
+-	fprintf(stderr, "on_series_solve_log: %s\n", message);
++	fprintf(stderr, "%s: %s\n", "on_series_solve_log", message);
+ }
+ 
+ static void
+@@ -1377,7 +1392,7 @@ on_series_solve_done(int status, void *a
+ 
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "on_series_solve_done");
+     if (pmDebugOptions.query && pmDebugOptions.desperate)
+-	fprintf(stderr, "on_series_solve_done: arg=%p status=%d\n", arg, status);
++	fprintf(stderr, "%s: arg=%p status=%d\n", "on_series_solve_done", arg, status);
+     baton->callbacks->on_done(status, baton->userdata);
+ }
+ 
+@@ -1388,7 +1403,7 @@ on_series_solve_value(pmSID sid, pmSerie
+ 
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "on_series_solve_value");
+     if (pmDebugOptions.query && pmDebugOptions.desperate)
+-	fprintf(stderr, "on_series_solve_value: arg=%p %s %s %s\n",
++	fprintf(stderr, "%s: arg=%p %s %s %s\n", "on_series_solve_value",
+ 		arg, value->timestamp, value->data, value->series);
+     return baton->callbacks->on_value(sid, value, baton->userdata);
+ }
+@@ -1399,9 +1414,9 @@ on_series_solve_inst_done(int status, vo
+ {
+     seriesQueryBaton	*baton = arg;
+ 
+-    seriesBatonCheckMagic(baton, MAGIC_QUERY, "on_series_solve_done");
++    seriesBatonCheckMagic(baton, MAGIC_QUERY, "on_series_solve_inst_done");
+     if (pmDebugOptions.query && pmDebugOptions.desperate)
+-	fprintf(stderr, "on_series_solve_done: arg=%p status=%d\n", arg, status);
++	fprintf(stderr, "%s: arg=%p status=%d\n", "on_series_solve_done", arg, status);
+     /* on_done is called by series_query_finished */
+     seriesBatonDereference(baton, "on_series_solve_inst_done");
+ }
+@@ -1419,7 +1434,7 @@ on_series_solve_inst_value(pmSID sid, pm
+ 
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "on_series_solve_inst_value");
+     if (pmDebugOptions.query) {
+-	fprintf(stderr, "on_series_solve_inst_value: arg=%p %s %s %s\n",
++	fprintf(stderr, "%s: arg=%p %s %s %s\n", "on_series_solve_inst_value",
+ 		arg, value->timestamp, value->data, value->series);
+     }
+ 
+@@ -1478,11 +1493,11 @@ series_solve_sid_expr(pmSeriesSettings *
+     seriesBatonCheckMagic(sid, MAGIC_SID, "series_query_expr_reply");
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "series_query_expr_reply");
+ 
+-    if (pmDebugOptions.query) {
+-	fprintf(stderr, "series_solve_sid_expr: SID %s, "
+-		"seriesQueryBaton=%p, pmSeriesBaton=userdata=%p expr=\"%s\"\n",
+-		sid->name, baton, baton->userdata, expr->query);
+-    }
++    if (pmDebugOptions.query)
++	fprintf(stderr, "%s: SID %s, seriesQueryBaton=%p, "
++			"pmSeriesBaton=userdata=%p expr=\"%s\"\n",
++			"series_solve_sid_expr",
++			sid->name, baton, baton->userdata, expr->query);
+ 
+     /* ref baton until on_series_solve_done */
+     seriesBatonReference(baton, "series_solve_sid_expr");
+@@ -1491,7 +1506,7 @@ series_solve_sid_expr(pmSeriesSettings *
+ 	pmSeriesSetSlots(&settings->module, baton->slots);
+ 	settings->module = *baton->module; /* struct cpy */
+ 
+-	sts = series_solve(settings, sp.expr, &baton->u.query.timing,
++	sts = series_solve(settings, sp.expr, &baton->query.timing,
+ 	    PM_SERIES_FLAG_NONE, baton);
+     }
+ 
+@@ -1587,7 +1602,7 @@ series_value_count_only(timing_t *tp)
+ static void
+ series_prepare_time(seriesQueryBaton *baton, series_set_t *result)
+ {
+-    timing_t		*tp = &baton->u.query.timing;
++    timing_t		*tp = &baton->query.timing;
+     unsigned char	*series = result->series;
+     seriesGetSID	*sid;
+     char		buffer[64], revbuf[64];
+@@ -1730,11 +1745,16 @@ series_query_report_matches(void *arg)
+ 
+     seriesBatonReference(baton, "series_query_report_matches");
+ 
+-    has_function = series_calculate(baton, &baton->u.query.root, 0);
+-    
++    has_function = series_calculate(baton->query.root, 0, arg);
++
++    /*
++     * Store the canonical query to Redis if this query statement has
++     * function operation.
++     */
+     if (has_function != 0)
+ 	series_redis_hash_expression(baton, hashbuf, sizeof(hashbuf));
+-    series_report_set(baton, &baton->u.query.root);
++
++    series_report_set(baton, baton->query.root);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -1747,7 +1767,7 @@ series_query_maps(void *arg)
+     seriesBatonCheckCount(baton, "series_query_maps");
+ 
+     seriesBatonReference(baton, "series_query_maps");
+-    series_prepare_maps(baton, &baton->u.query.root, 0);
++    series_prepare_maps(baton, baton->query.root, 0);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -1760,7 +1780,7 @@ series_query_eval(void *arg)
+     seriesBatonCheckCount(baton, "series_query_eval");
+ 
+     seriesBatonReference(baton, "series_query_eval");
+-    series_prepare_eval(baton, &baton->u.query.root, 0);
++    series_prepare_eval(baton, baton->query.root, 0);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -1773,7 +1793,7 @@ series_query_expr(void *arg)
+     seriesBatonCheckCount(baton, "series_query_expr");
+ 
+     seriesBatonReference(baton, "series_query_expr");
+-    series_prepare_expr(baton, &baton->u.query.root, 0);
++    series_prepare_expr(baton, baton->query.root, 0);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -1827,7 +1847,7 @@ series_values_store_to_node(seriesQueryB
+ {
+     seriesSampling	sampling = {0};
+     redisReply		*reply, *sample, **elements;
+-    timing_t		*tp = &baton->u.query.timing;
++    timing_t		*tp = &baton->query.timing;
+     int			i, sts, next, nelements;
+     int			idx_series = np->value_set.num_series;
+     int			idx_sample = 0;
+@@ -2540,9 +2560,9 @@ series_rate_check(pmSeriesDesc desc)
+  * The number of samples in result is one less than the original samples. 
+  */
+ static void
+-series_calculate_rate(node_t *np)
++series_calculate_rate(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     pmSeriesValue	s_pmval, t_pmval;
+     unsigned int	n_instances, n_samples, i, j, k;
+     double		s_data, t_data, mult;
+@@ -2627,9 +2647,9 @@ series_calculate_rate(node_t *np)
+  * Compare and pick the maximal instance value(s) among samples for each metric.
+  */
+ static void
+-series_calculate_max(node_t *np)
++series_calculate_max(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     unsigned int	n_series, n_samples, n_instances, i, j, k;
+     double		max_data, data;
+     int			max_pointer;
+@@ -2686,9 +2706,9 @@ series_calculate_max(node_t *np)
+  * Compare and pick the minimal instance value(s) among samples for each metric.
+  */
+ static void
+-series_calculate_min(node_t *np)
++series_calculate_min(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     unsigned int	n_series, n_samples, n_instances, i, j, k;
+     double		min_data, data;
+     int			min_pointer;
+@@ -2838,9 +2858,9 @@ series_pmAtomValue_conv_str(int type, ch
+  * metrics to be modified. 
+  */
+ static void
+-series_calculate_rescale(node_t *np)
++series_calculate_rescale(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     double		mult;
+     pmUnits		iunit;
+     char		*errmsg, str_val[256];
+@@ -2933,9 +2953,9 @@ series_abs_pmAtomValue(int type, pmAtomV
+ }
+ 
+ static void
+-series_calculate_abs(node_t *np)
++series_calculate_abs(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     pmAtomValue		val;
+     int			type, sts, str_len, i, j, k;
+     char		str_val[256];
+@@ -2976,9 +2996,10 @@ series_calculate_abs(node_t *np)
+  * calculate sum or avg series per-instance over time samples
+  */
+ static void
+-series_calculate_statistical(node_t *np, nodetype_t func)
++series_calculate_statistical(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
++    nodetype_t		func = np->type;
+     unsigned int	n_series, n_samples, n_instances, i, j, k;
+     double		sum_data, data;
+     char		sum_data_str[64];
+@@ -3072,9 +3093,9 @@ series_floor_pmAtomValue(int type, pmAto
+ }
+ 
+ static void
+-series_calculate_floor(node_t *np)
++series_calculate_floor(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     pmAtomValue		val;
+     int			type, sts, str_len, i, j, k;
+     char		str_val[256];
+@@ -3157,9 +3178,9 @@ series_log_pmAtomValue(int itype, int *o
+  * Return the logarithm of x to base b (log_b^x).
+  */
+ static void
+-series_calculate_log(node_t *np)
++series_calculate_log(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     double		base;
+     pmAtomValue		val;
+     int			i, j, k, itype, otype=PM_TYPE_UNKNOWN;
+@@ -3251,9 +3272,9 @@ series_sqrt_pmAtomValue(int itype, int *
+ }
+ 
+ static void
+-series_calculate_sqrt(node_t *np)
++series_calculate_sqrt(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     pmAtomValue		val;
+     int			i, j, k, itype, otype=PM_TYPE_UNKNOWN;
+     int			sts, str_len;
+@@ -3320,9 +3341,9 @@ series_round_pmAtomValue(int type, pmAto
+ }
+ 
+ static void
+-series_calculate_round(node_t *np)
++series_calculate_round(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     pmAtomValue		val;
+     int			i, j, k, type, sts, str_len;
+     char		str_val[256];
+@@ -3393,6 +3414,7 @@ series_calculate_binary_check(int ope_ty
+ 	baton->error = -EPROTO;
+ 	return -1;
+     }
++
+     /*
+      * For addition and subtraction all dimensions for each of
+      * the operands and result are identical.
+@@ -3711,9 +3733,9 @@ series_binary_meta_update(node_t *left,
+ }
+ 
+ static void
+-series_calculate_plus(node_t *np)
++series_calculate_plus(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     node_t		*left = np->left, *right = np->right;
+     int			l_type, r_type, otype=PM_TYPE_UNKNOWN;
+     int			l_sem, r_sem, j, k;
+@@ -3763,9 +3785,9 @@ series_calculate_plus(node_t *np)
+ }
+ 
+ static void
+-series_calculate_minus(node_t *np)
++series_calculate_minus(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     node_t		*left = np->left, *right = np->right;
+     unsigned int	num_samples, num_instances, j, k;
+     pmAtomValue		l_val, r_val;
+@@ -3815,9 +3837,9 @@ series_calculate_minus(node_t *np)
+ }
+ 
+ static void
+-series_calculate_star(node_t *np)
++series_calculate_star(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     node_t		*left = np->left, *right = np->right;
+     unsigned int	num_samples, num_instances, j, k;
+     pmAtomValue		l_val, r_val;
+@@ -3867,9 +3889,9 @@ series_calculate_star(node_t *np)
+ }
+ 
+ static void
+-series_calculate_slash(node_t *np)
++series_calculate_slash(node_t *np, void *arg)
+ {
+-    seriesQueryBaton	*baton = (seriesQueryBaton *)np->baton;
++    seriesQueryBaton	*baton = (seriesQueryBaton *)arg;
+     node_t		*left = np->left, *right = np->right;
+     unsigned int	num_samples, num_instances, j, k;
+     pmAtomValue		l_val, r_val;
+@@ -3878,12 +3900,16 @@ series_calculate_slash(node_t *np)
+     int			l_sem, r_sem;
+     sds			msg;
+ 
+-    if (left->value_set.num_series == 0 || right->value_set.num_series == 0) return;
+-    if (series_calculate_binary_check(N_SLASH, baton, left, right, &l_type, &r_type, &l_sem, &r_sem,
+-		 &l_units, &r_units, &large_units, left->value_set.series_values[0].series_desc.indom,
+-		 right->value_set.series_values[0].series_desc.indom) != 0) {
++    if (left->value_set.num_series == 0 || right->value_set.num_series == 0)
+ 	return;
+-    }
++
++    if (series_calculate_binary_check(N_SLASH, baton, left, right,
++		&l_type, &r_type, &l_sem, &r_sem,
++		&l_units, &r_units, &large_units,
++		left->value_set.series_values[0].series_desc.indom,
++		right->value_set.series_values[0].series_desc.indom) != 0)
++	return;
++
+     num_samples = left->value_set.series_values[0].num_samples;
+ 
+     for (j = 0; j < num_samples; j++) {
+@@ -3912,7 +3938,6 @@ series_calculate_slash(node_t *np)
+ 
+     series_binary_meta_update(left, &large_units, &l_sem, &r_sem, &otype);
+     np->value_set = left->value_set;
+-
+ }
+ 
+ /* 
+@@ -3924,81 +3949,65 @@ series_calculate_slash(node_t *np)
+  * store them into this node.
+  */
+ static int
+-series_calculate(seriesQueryBaton *baton, node_t *np, int level)
++series_calculate(node_t *np, int level, void *arg)
+ {
+     int		sts;
+ 
+     if (np == NULL)
+ 	return 0;
+-    if ((sts = series_calculate(baton, np->left, level+1)) < 0)
++    if ((sts = series_calculate(np->left, level+1, arg)) < 0)
+ 	return sts;
+-    if ((sts = series_calculate(baton, np->right, level+1)) < 0)
++    if ((sts = series_calculate(np->right, level+1, arg)) < 0)
+ 	return sts;
+ 
+-    np->baton = baton;
+-    switch (np->type) {
+-	case N_RATE:
+-	    series_calculate_rate(np);
+-	    sts = N_RATE;
+-	    break;
+-	case N_MAX:
+-	    series_calculate_max(np);
+-	    sts = N_MAX;
+-	    break;
+-	case N_MIN:
+-	    series_calculate_min(np);
+-	    sts = N_MIN;
+-	    break;
+-	case N_RESCALE:
+-	    series_calculate_rescale(np);
+-	    sts = N_RESCALE;
+-	    break;
+-	case N_ABS:
+-	    series_calculate_abs(np);
+-	    sts = N_ABS;
+-	    break;
+-	case N_FLOOR:
+-	    series_calculate_floor(np);
+-	    sts = N_FLOOR;
+-	    break;
+-	case N_LOG:
+-	    series_calculate_log(np);
+-	    sts = N_LOG;
+-	    break;
+-	case N_SQRT:
+-	    series_calculate_sqrt(np);
+-	    sts = N_SQRT;
+-	    break;
+-	case N_ROUND:
+-	    series_calculate_round(np);
+-	    sts = N_ROUND;
+-	    break;
+-	case N_PLUS:
+-	    series_calculate_plus(np);
+-	    sts = N_PLUS;
+-	    break;
+-	case N_MINUS:
+-	    series_calculate_minus(np);
+-	    sts = N_MINUS;
+-	    break;
+-	case N_STAR:
+-	    series_calculate_star(np);
+-	    sts = N_STAR;
+-	    break;
+-	case N_SLASH:
+-	    series_calculate_slash(np);
+-	    sts = N_SLASH;
+-	    break;
+-	case N_AVG:
+-	    series_calculate_statistical(np, N_AVG);
+-	    sts = N_AVG;
+-	    break;
+-	case N_SUM:
+-	    series_calculate_statistical(np, N_SUM);
+-	    sts = N_SUM;
+-	    break;
+-	default:
+-	    break;
++    switch ((sts = np->type)) {
++    case N_RATE:
++	series_calculate_rate(np, arg);
++	break;
++    case N_MAX:
++	series_calculate_max(np, arg);
++	break;
++    case N_MIN:
++	series_calculate_min(np, arg);
++	break;
++    case N_RESCALE:
++	series_calculate_rescale(np, arg);
++	sts = N_RESCALE;
++	break;
++    case N_ABS:
++	series_calculate_abs(np, arg);
++	break;
++    case N_FLOOR:
++	series_calculate_floor(np, arg);
++	break;
++    case N_LOG:
++	series_calculate_log(np, arg);
++	break;
++    case N_SQRT:
++	series_calculate_sqrt(np, arg);
++	break;
++    case N_ROUND:
++	series_calculate_round(np, arg);
++	break;
++    case N_PLUS:
++	series_calculate_plus(np, arg);
++	break;
++    case N_MINUS:
++	series_calculate_minus(np, arg);
++	break;
++    case N_STAR:
++	series_calculate_star(np, arg);
++	break;
++    case N_SLASH:
++	series_calculate_slash(np, arg);
++	break;
++    case N_AVG:
++    case N_SUM:
++	series_calculate_statistical(np, arg);
++	break;
++    default:
++	sts = 0;	/* no function */
++	break;
+     }
+     return sts;
+ }
+@@ -4006,9 +4015,9 @@ series_calculate(seriesQueryBaton *baton
+ static int
+ check_compatibility(pmUnits *units_a, pmUnits *units_b)
+ {
+-    if (compare_pmUnits_dim(units_a, units_b) == 0) {
++    if (compare_pmUnits_dim(units_a, units_b) == 0)
+ 	return 0;
+-    } else return -1;
++    return -1;
+ }
+ 
+ static void
+@@ -4072,7 +4081,7 @@ series_redis_hash_expression(seriesQuery
+     unsigned char	hash[20];
+     sds			key, msg;
+     char		*errmsg;
+-    node_t		*np = &baton->u.query.root;
++    node_t		*np = baton->query.root;
+     int			i, j, num_series = np->value_set.num_series;
+     pmUnits		units0, units1, large_units;
+     double		mult;
+@@ -4088,17 +4097,18 @@ series_redis_hash_expression(seriesQuery
+ 
+     for (i = 0; i < num_series; i++) {
+ 	if (!np->value_set.series_values[i].compatibility) {
+-	    infofmt(msg, "Descriptors for metric '%s' do not satisfy compatibility between different hosts/sources.\n",
++	    infofmt(msg, "Descriptors for metric '%s' between different sources are incompatible.\n",
+ 		np->value_set.series_values[i].metric_name);
+ 	    batoninfo(baton, PMLOG_ERROR, msg);
+ 	    baton->error = -EPROTO;
+-	    continue;
++	    break;
+ 	}
+ 
+ 	if (strncmp(np->value_set.series_values[i].series_desc.units, "none", 4) == 0)
+ 	    memset(&units0, 0, sizeof(units0));
+-	else if (pmParseUnitsStr(np->value_set.series_values[i].series_desc.units,
+-	    &units0, &mult, &errmsg) != 0) {
++	else if (pmParseUnitsStr(
++			np->value_set.series_values[i].series_desc.units,
++			&units0, &mult, &errmsg) != 0) {
+ 	    np->value_set.series_values[i].compatibility = 0;
+ 	    infofmt(msg, "Invalid units string: %s\n",
+ 		    np->value_set.series_values[i].series_desc.units);
+@@ -4127,7 +4137,12 @@ series_redis_hash_expression(seriesQuery
+ 
+ 	    if (check_compatibility(&units0, &units1) != 0) {
+ 		np->value_set.series_values[j].compatibility = 0;
+-		infofmt(msg, "Incompatible units between operand metrics or expressions\n");
++		infofmt(msg, "Incompatible units between operand metrics or expressions\n"
++				"'%s' (%s)\nvs\'%s' (%s)\n",
++				np->value_set.series_values[i].metric_name,
++				np->value_set.series_values[i].series_desc.units,
++				np->value_set.series_values[j].metric_name,
++				np->value_set.series_values[j].series_desc.units);
+ 		batoninfo(baton, PMLOG_ERROR, msg);
+ 		baton->error = -EPROTO;
+ 		break;
+@@ -4175,7 +4190,7 @@ series_query_report_values(void *arg)
+     seriesBatonCheckCount(baton, "series_query_report_values");
+ 
+     seriesBatonReference(baton, "series_query_report_values");
+-    series_prepare_time(baton, &baton->u.query.root.result);
++    series_prepare_time(baton, &baton->query.root->result);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -4192,7 +4207,7 @@ series_query_funcs_report_values(void *a
+     seriesBatonReference(baton, "series_query_funcs_report_values");
+ 
+     /* For function-type nodes, calculate actual values */
+-    has_function = series_calculate(baton, &baton->u.query.root, 0);
++    has_function = series_calculate(baton->query.root, 0, baton->userdata);
+ 
+     /*
+      * Store the canonical query to Redis if this query statement has
+@@ -4202,7 +4217,7 @@ series_query_funcs_report_values(void *a
+ 	series_redis_hash_expression(baton, hashbuf, sizeof(hashbuf));
+ 
+     /* time series values saved in root node so report them directly. */
+-    series_node_values_report(baton, &baton->u.query.root);
++    series_node_values_report(baton, baton->query.root);
+     
+     series_query_end_phase(baton);
+ }
+@@ -4217,7 +4232,7 @@ series_query_funcs(void *arg)
+ 
+     seriesBatonReference(baton, "series_query_funcs");
+     /* Process function-type node */
+-    series_process_func(baton, &baton->u.query.root, 0);
++    series_process_func(baton, baton->query.root, 0);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -4230,7 +4245,7 @@ series_query_desc(void *arg)
+     seriesBatonCheckCount(baton, "series_query_desc");
+ 
+     seriesBatonReference(baton, "series_query_desc");
+-    series_expr_node_desc(baton, &baton->u.query.root);
++    series_expr_node_desc(baton, baton->query.root);
+     series_query_end_phase(baton);
+ }
+ 
+@@ -4380,7 +4395,7 @@ series_map_lookup_expr_reply(redisCluste
+ 	    baton->error = sts;
+ 	} else {
+ 	    /* call the on_metric callback, whatever it's set to by the caller */
+-	    baton->u.lookup.func(sid->name, query, baton->userdata);
++	    baton->lookup.func(sid->name, query, baton->userdata);
+ 	}
+     }
+     series_query_end_phase(baton);
+@@ -4434,8 +4449,8 @@ series_map_reply(seriesQueryBaton *baton
+ 	    if (reply->type == REDIS_REPLY_STRING) {
+ 		sdsclear(key);
+ 		key = sdscatlen(key, reply->str, reply->len);
+-		if ((entry = redisMapLookup(baton->u.lookup.map, key)) != NULL)
+-		    baton->u.lookup.func(series, redisMapValue(entry), baton->userdata);
++		if ((entry = redisMapLookup(baton->lookup.map, key)) != NULL)
++		    baton->lookup.func(series, redisMapValue(entry), baton->userdata);
+ 		else {
+ 		    infofmt(msg, "%s - timeseries string map", series);
+ 		    batoninfo(baton, PMLOG_CORRUPT, msg);
+@@ -4470,11 +4485,11 @@ series_map_keys_callback(
+ 	for (i = 0; i < reply->elements; i++) {
+ 	    child = reply->element[i];
+ 	    if (child->type == REDIS_REPLY_STRING) {
+-		if (baton->u.lookup.pattern != NULL &&
+-		    fnmatch(baton->u.lookup.pattern, child->str, 0) != 0)
++		if (baton->lookup.pattern != NULL &&
++		    fnmatch(baton->lookup.pattern, child->str, 0) != 0)
+ 		    continue;
+ 		val = sdscpylen(val, child->str, child->len);
+-		baton->u.lookup.func(NULL, val, baton->userdata);
++		baton->lookup.func(NULL, val, baton->userdata);
+ 	    } else {
+ 		infofmt(msg, "bad response for string map %s (%s)",
+ 			HVALS, redis_reply_type(child));
+@@ -4599,7 +4614,7 @@ series_label_reply(seriesQueryBaton *bat
+ 	sdsclear(vmapID);
+ 	vmapID = sdscatlen(vmapID, elements[index+1]->str, elements[index+1]->len);
+ 
+-	if ((entry = redisMapLookup(baton->u.lookup.map, nmapID)) != NULL) {
++	if ((entry = redisMapLookup(baton->lookup.map, nmapID)) != NULL) {
+ 	    pmwebapi_hash_str((unsigned char *)nmapID, hashbuf, sizeof(hashbuf));
+ 	    vkey = sdscatfmt(sdsempty(), "label.%s.value", hashbuf);
+ 	    vmap = redisMapCreate(vkey);
+@@ -4680,9 +4695,9 @@ series_lookup_labels(void *arg)
+     seriesBatonCheckCount(baton, "series_lookup_labels");
+ 
+     /* unpack - iterate over series and extract labels names and values */
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
++    for (i = 0; i < baton->lookup.nseries; i++) {
+ 	seriesBatonReference(baton, "series_lookup_labels");
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	key = sdscatfmt(sdsempty(), "pcp:labelvalue:series:%S", sid->name);
+ 	cmd = redis_command(2);
+ 	cmd = redis_param_str(cmd, HGETALL, HGETALL_LEN);
+@@ -4712,7 +4727,7 @@ pmSeriesLabels(pmSeriesSettings *setting
+     initSeriesGetLookup(baton, nseries, series, settings->callbacks.on_label, labelsmap);
+ 
+     if (nseries == 0)
+-	return series_map_keys(baton, redisMapName(baton->u.lookup.map));
++	return series_map_keys(baton, redisMapName(baton->lookup.map));
+ 
+     baton->current = &baton->phases[0];
+     baton->phases[i++].func = series_lookup_services;
+@@ -4780,8 +4795,8 @@ series_lookup_labelvalues(void *arg)
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "series_lookup_labelvalues");
+     seriesBatonCheckCount(baton, "series_lookup_labelvalues");
+ 
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
+-	sid = &baton->u.lookup.series[i];
++    for (i = 0; i < baton->lookup.nseries; i++) {
++	sid = &baton->lookup.series[i];
+ 	seriesBatonReference(baton, "series_lookup_labelvalues");
+ 
+ 	pmwebapi_string_hash(hash, sid->name, sdslen(sid->name));
+@@ -4874,8 +4889,8 @@ series_lookup_desc(void *arg)
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "series_lookup_desc");
+     seriesBatonCheckCount(baton, "series_lookup_desc");
+ 
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
+-	sid = &baton->u.lookup.series[i];
++    for (i = 0; i < baton->lookup.nseries; i++) {
++	sid = &baton->lookup.series[i];
+ 	seriesBatonReference(baton, "series_lookup_desc");
+ 
+ 	key = sdscatfmt(sdsempty(), "pcp:desc:series:%S", sid->name);
+@@ -5054,7 +5069,7 @@ series_inst_expr_reply(redisClusterAsync
+ 	    baton->error = sts;
+ 	} else {
+ 	    /* Parse the expr (with timing) and series solve the resulting expr tree */
+-	    baton->u.query.timing.count = 1;
++	    baton->query.timing.count = 1;
+ 	    baton->error = series_solve_sid_expr(&series_solve_inst_settings, &expr, arg);
+ 	}
+     }
+@@ -5121,9 +5136,9 @@ series_lookup_instances(void *arg)
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "series_lookup_instances_callback");
+     seriesBatonCheckCount(baton, "series_lookup_instances_callback");
+ 
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
++    for (i = 0; i < baton->lookup.nseries; i++) {
+ 	seriesBatonReference(baton, "series_lookup_instances_callback");
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	key = sdscatfmt(sdsempty(), "pcp:instances:series:%S", sid->name);
+ 	cmd = redis_command(2);
+ 	cmd = redis_param_str(cmd, SMEMBERS, SMEMBERS_LEN);
+@@ -5153,7 +5168,7 @@ pmSeriesInstances(pmSeriesSettings *sett
+     initSeriesGetLookup(baton, nseries, series, settings->callbacks.on_instance, instmap);
+ 
+     if (nseries == 0)
+-	return series_map_keys(baton, redisMapName(baton->u.lookup.map));
++	return series_map_keys(baton, redisMapName(baton->lookup.map));
+ 
+     baton->current = &baton->phases[0];
+     baton->phases[i++].func = series_lookup_services;
+@@ -5177,7 +5192,7 @@ redis_lookup_mapping_callback(
+ 
+     /* unpack - produce reverse map of ids-to-names for each context */
+     if (LIKELY(reply && reply->type == REDIS_REPLY_ARRAY)) {
+-	reverse_map(baton, baton->u.lookup.map, reply->elements, reply->element);
++	reverse_map(baton, baton->lookup.map, reply->elements, reply->element);
+     } else {
+ 	infofmt(msg, "expected array from %s %s (type=%s)",
+ 	    HGETALL, "pcp:map:context.name", redis_reply_type(reply));
+@@ -5198,7 +5213,7 @@ series_lookup_mapping(void *arg)
+     seriesBatonCheckCount(baton, "series_lookup_mapping");
+     seriesBatonReference(baton, "series_lookup_mapping");
+ 
+-    key = sdscatfmt(sdsempty(), "pcp:map:%s", redisMapName(baton->u.lookup.map));
++    key = sdscatfmt(sdsempty(), "pcp:map:%s", redisMapName(baton->lookup.map));
+     cmd = redis_command(2);
+     cmd = redis_param_str(cmd, HGETALL, HGETALL_LEN);
+     cmd = redis_param_sds(cmd, key);
+@@ -5328,9 +5343,9 @@ series_lookup_sources(void *arg)
+     seriesBatonCheckCount(baton, "series_lookup_sources");
+     seriesBatonReference(baton, "series_lookup_sources");
+ 
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
++    for (i = 0; i < baton->lookup.nseries; i++) {
+ 	seriesBatonReference(baton, "series_lookup_sources");
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	key = sdscatfmt(sdsempty(), "pcp:context.name:source:%S", sid->name);
+ 	cmd = redis_command(2);
+ 	cmd = redis_param_str(cmd, SMEMBERS, SMEMBERS_LEN);
+@@ -5361,7 +5376,7 @@ pmSeriesSources(pmSeriesSettings *settin
+     initSeriesGetLookup(baton, nsources, sources, settings->callbacks.on_context, contextmap);
+ 
+     if (nsources == 0)
+-	return series_map_keys(baton, redisMapName(baton->u.lookup.map));
++	return series_map_keys(baton, redisMapName(baton->lookup.map));
+ 
+     baton->current = &baton->phases[0];
+     baton->phases[i++].func = series_lookup_services;
+@@ -5384,9 +5399,9 @@ series_lookup_metrics(void *arg)
+     seriesBatonCheckMagic(baton, MAGIC_QUERY, "series_lookup_metrics");
+     seriesBatonCheckCount(baton, "series_lookup_metrics");
+ 
+-    for (i = 0; i < baton->u.lookup.nseries; i++) {
++    for (i = 0; i < baton->lookup.nseries; i++) {
+ 	seriesBatonReference(baton, "series_lookup_metrics");
+-	sid = &baton->u.lookup.series[i];
++	sid = &baton->lookup.series[i];
+ 	key = sdscatfmt(sdsempty(), "pcp:metric.name:series:%S", sid->name);
+ 	cmd = redis_command(2);
+ 	cmd = redis_param_str(cmd, SMEMBERS, SMEMBERS_LEN);
+@@ -5416,7 +5431,7 @@ pmSeriesMetrics(pmSeriesSettings *settin
+     initSeriesGetLookup(baton, nseries, series, settings->callbacks.on_metric, namesmap);
+ 
+     if (nseries == 0)
+-	return series_map_keys(baton, redisMapName(baton->u.lookup.map));
++	return series_map_keys(baton, redisMapName(baton->lookup.map));
+ 
+     baton->current = &baton->phases[0];
+     baton->phases[i++].func = series_lookup_services;
+@@ -5517,55 +5532,66 @@ parseseries(seriesQueryBaton *baton, sds
+ }
+ 
+ static void
+-initSeriesGetValues(seriesQueryBaton *baton, int nseries, sds *series,
++initSeriesGetValues(seriesQueryBaton *baton, int nseries, sds *inseries,
+ 		pmSeriesTimeWindow *window)
+ {
+-    struct series_set	*result = &baton->u.query.root.result;
+-    struct timing	*timing = &baton->u.query.timing;
++    struct node		*node = NULL;
++    struct timing	timing = {0};
++    unsigned char	*series = NULL;
++    struct series_set	*result;
+     struct timeval	offset;
+     int			i;
+-
+-    /* validate and convert 40-byte (ASCII) SIDs to internal 20-byte form */
+-    result->nseries = nseries;
+-    if ((result->series = calloc(nseries, 20)) == NULL) {
++ 
++    /* allocate a local parse node, timing and result SIDs */
++    if (!(node = (node_t *)calloc(1, sizeof(node_t))))
++	baton->error = -ENOMEM;
++    else if (!(series = calloc(nseries, 20)))   /* 20 byte SIDs */
+ 	baton->error = -ENOMEM;
+-    } else {
+-	for (i = 0; i < nseries; i++)
+-	    parseseries(baton, series[i], result->series + (i * 20));
+-    }
+     if (baton->error) {
+-	if (result->series)
+-	    free(result->series);
++	if (series) free(series);
++	if (node) free(node);
+ 	return;
+-    }
++    }           
++
++    /* track this memory in the baton for async free later */
++    result = &node->result;
++    result->series = series;
++    result->nseries = nseries;
++
++    /* validate and convert 40-byte (ASCII) SIDs to internal 20-byte form */
++    for (i = 0; i < nseries; i++)
++	parseseries(baton, inseries[i], result->series + (i * 20));
+ 
+     /* validate and convert time window specification to internal struct */
+-    timing->window = *window;
++    timing.window = *window;
+     if (window->delta)
+-	parsedelta(baton, window->delta, &timing->delta, "delta");
++	parsedelta(baton, window->delta, &timing.delta, "delta");
+     if (window->align)
+-	parsetime(baton, window->align, &timing->align, "align");
++	parsetime(baton, window->align, &timing.align, "align");
+     if (window->start)
+-	parsetime(baton, window->start, &timing->start, "start");
++	parsetime(baton, window->start, &timing.start, "start");
+     if (window->end)
+-	parsetime(baton, window->end, &timing->end, "end");
++	parsetime(baton, window->end, &timing.end, "end");
+     if (window->range) {
+-	parsedelta(baton, window->range, &timing->start, "range");
++	parsedelta(baton, window->range, &timing.start, "range");
+ 	gettimeofday(&offset, NULL);
+-	tsub(&offset, &timing->start);
+-	timing->start = offset;
+-	timing->end.tv_sec = INT_MAX;
++	tsub(&offset, &timing.start);
++	timing.start = offset;
++	timing.end.tv_sec = INT_MAX;
+     }
+     if (window->count)
+-	parseuint(baton, window->count, &timing->count, "count");
++	parseuint(baton, window->count, &timing.count, "count");
+     if (window->offset)
+-	parseuint(baton, window->offset, &timing->offset, "offset");
++	parseuint(baton, window->offset, &timing.offset, "offset");
+     if (window->zone)
+-	parsezone(baton, window->zone, &timing->zone, "timezone");
++	parsezone(baton, window->zone, &timing.zone, "timezone");
+ 
+     /* if no time window parameters passed, default to latest value */
+-    if (!series_time_window(timing))
+-	timing->count = 1;
++    if (!series_time_window(&timing))
++	timing.count = 1;
++
++    baton->query.timing = timing; /* struct copy */
++    baton->query.root = node;
+ }
+ 
+ int
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/schema.h pcp-5.3.7/src/libpcp_web/src/schema.h
+--- pcp-5.3.7.orig/src/libpcp_web/src/schema.h	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/libpcp_web/src/schema.h	2023-07-05 13:42:53.414025716 +1000
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2021 Red Hat.
++ * Copyright (c) 2017-2022 Red Hat.
+  *
+  * This library is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -126,6 +126,7 @@ typedef struct seriesGetContext {
+     context_t		context;
+     unsigned long long	count;		/* number of samples processed */
+     pmResult		*result;	/* currently active sample data */
++    int			loaded;		/* end of archive data reached */
+     int			error;		/* PMAPI error code from fetch */
+ 
+     redisDoneCallBack	done;
+@@ -152,6 +153,9 @@ typedef struct seriesLoadBaton {
+     const char		**metrics;	/* metric specification strings */
+     dict		*errors;	/* PMIDs where errors observed */
+     dict		*wanted;	/* allowed metrics list PMIDs */
++    sds			*exclude_patterns;	/* list of exclude metric patterns (e.g. proc.*) */
++    unsigned int	exclude_npatterns;	/* number of exclude metric patterns */
++    dict		*exclude_pmids;		/* dict of excluded pmIDs (pmID: NULL) */
+ 
+     int			error;
+     void		*arg;
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/slots.c pcp-5.3.7/src/libpcp_web/src/slots.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/slots.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/libpcp_web/src/slots.c	2023-07-05 13:42:53.414025716 +1000
+@@ -633,8 +633,10 @@ redisSlotsProxyConnect(redisSlots *slots
+     redisReader		*reader = *readerp;
+     redisReply		*reply = NULL;
+     dictEntry		*entry;
+-    long long		position, offset, length;
+-    sds			cmd, key, msg;
++    size_t		replyStartPosition;
++    long long		position;
++    sds			cmd, msg;
++    int			hasKey;
+     int			sts;
+ 
+     if (!reader &&
+@@ -644,33 +646,45 @@ redisSlotsProxyConnect(redisSlots *slots
+ 	return -ENOMEM;
+     }
+ 
+-    offset = reader->pos;
+-    length = sdslen(reader->buf);
+-    if (redisReaderFeed(reader, buffer, nread) != REDIS_OK ||
+-	redisReaderGetReply(reader, (void **)&reply) != REDIS_OK) {
++    if (redisReaderFeed(reader, buffer, nread) != REDIS_OK) {
+ 	infofmt(msg, "failed to parse Redis protocol request");
+ 	info(PMLOG_REQUEST, msg, arg), sdsfree(msg);
+ 	return -EPROTO;
+     }
+ 
+-    if (reply != NULL) {	/* client request is complete */
+-	key = cmd = NULL;
++    /* parse all Redis requests contained in buffer (Redis pipelining) */
++    while (1) {
++	replyStartPosition = reader->pos;
++	sts = redisReaderGetReply(reader, (void **)&reply);
++	if (sts != REDIS_OK) {
++	    infofmt(msg, "failed to parse Redis protocol request");
++	    info(PMLOG_REQUEST, msg, arg), sdsfree(msg);
++	    return -EPROTO;
++	}
++	if (reply == NULL) {
++	    break;
++	}
++
++	cmd = NULL;
++	hasKey = 0;
+ 	if (reply->type == REDIS_REPLY_ARRAY ||
+ 	    reply->type == REDIS_REPLY_MAP ||
+ 	    reply->type == REDIS_REPLY_SET)
+ 	    cmd = sdsnew(reply->element[0]->str);
+ 	if (cmd && (entry = dictFind(slots->keymap, cmd)) != NULL) {
+ 	    position = dictGetSignedIntegerVal(entry);
+-	    if (position < reply->elements)
+-		key = sdsnew(reply->element[position]->str);
++	    if (position > 0 && position < reply->elements)
++		hasKey = 1;
+ 	}
+ 	sdsfree(cmd);
+-	cmd = sdsnewlen(reader->buf + offset, sdslen(reader->buf) - length);
+-	if (key != NULL && position > 0)
++
++	cmd = sdsnewlen(reader->buf + replyStartPosition, reader->pos - replyStartPosition);
++	if (hasKey)
+ 	    sts = redisSlotsRequest(slots, cmd, callback, arg);
+ 	else
+ 	    sts = redisSlotsRequestFirstNode(slots, cmd, callback, arg);
+-	sdsfree(key);
++	sdsfree(cmd);
++
+ 	if (sts != REDIS_OK) {
+ 	    redisReply *errorReply = calloc(1, sizeof(redisReply));
+ 	    errorReply->type = REDIS_REPLY_ERROR;
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/timer.c pcp-5.3.7/src/libpcp_web/src/timer.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/timer.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/libpcp_web/src/timer.c	2023-07-05 13:42:53.414025716 +1000
+@@ -13,6 +13,7 @@
+  */
+ #include <sys/resource.h>
+ #include "load.h"
++#include "maps.h"
+ #include "libpcp.h"
+ #include "mmv_stats.h"
+ 
+@@ -23,6 +24,10 @@ typedef enum server_metric {
+     SERVER_CPU_TOT,
+     SERVER_MEM_MAXRSS,
+     SERVER_MEM_DATASZ,
++    SERVER_MAP_CONTEXT_SIZE,
++    SERVER_MAP_METRIC_SIZE,
++    SERVER_MAP_LABEL_SIZE,
++    SERVER_MAP_INST_SIZE,
+     NUM_SERVER_METRIC
+ } server_metric_t;
+ 
+@@ -156,6 +161,7 @@ server_metrics_refresh(void *map)
+ {
+     double		usr, sys;
+     unsigned long long	datasz = 0;
++    unsigned int	value;
+     struct rusage	usage = {0};
+ 
+     __pmProcessDataSize((unsigned long*) &datasz);
+@@ -173,6 +179,16 @@ server_metrics_refresh(void *map)
+ 
+     /* exported as uint64 but manipulated as ulong/ulong long */
+     mmv_set(map, server.metrics[SERVER_MEM_DATASZ], &datasz);
++
++    /* update global maps size metrics */
++    value = contextmap? dictSize(contextmap) : 0;
++    mmv_set(map, server.metrics[SERVER_MAP_CONTEXT_SIZE], &value);
++    value = namesmap? dictSize(namesmap) : 0;
++    mmv_set(map, server.metrics[SERVER_MAP_METRIC_SIZE], &value);
++    value = labelsmap? dictSize(labelsmap) : 0;
++    mmv_set(map, server.metrics[SERVER_MAP_LABEL_SIZE], &value);
++    value = instmap? dictSize(instmap) : 0;
++    mmv_set(map, server.metrics[SERVER_MAP_INST_SIZE], &value);
+ }
+ 
+ /*
+@@ -181,6 +197,7 @@ server_metrics_refresh(void *map)
+ int
+ pmWebTimerSetMetricRegistry(struct mmv_registry *registry)
+ {
++    pmAtomValue		**ap;
+     pmUnits		nounits = MMV_UNITS(0,0,0,0,0,0);
+     pmUnits		units_kbytes = MMV_UNITS(1, 0, 0, PM_SPACE_KBYTE, 0, 0);
+     pmUnits		units_msec = MMV_UNITS(0, 1, 0, 0, PM_TIME_MSEC, 0);
+@@ -228,18 +245,46 @@ pmWebTimerSetMetricRegistry(struct mmv_r
+ 	"virtual data size",
+ 	"Process memory virtual data size from sbrk(2)");
+ 
++    /*
++     * Reverse mapping dict metrics
++     */
++    mmv_stats_add_metric(registry, "map.context.size", SERVER_MAP_CONTEXT_SIZE,
++        MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
++        "context map dictionary size",
++        "Number of entries in the context map dictionary");
++
++    mmv_stats_add_metric(registry, "map.metric.size", SERVER_MAP_METRIC_SIZE,
++        MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
++        "metric names map dictionary size",
++        "Number of entries in the metric names map dictionary");
++
++    mmv_stats_add_metric(registry, "map.label.size", SERVER_MAP_LABEL_SIZE,
++        MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
++        "label names map dictionary size",
++        "Number of entries in the labels map dictionary");
++
++    mmv_stats_add_metric(registry, "map.instance.size", SERVER_MAP_INST_SIZE,
++        MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
++        "instance names map dictionary size",
++        "Number of entries in the instance name map dictionary");
++
+     if ((map = mmv_stats_start(registry)) == NULL) {
+ 	pmNotifyErr(LOG_ERR, "%s: server instrumentation disabled",
+ 		"pmWebTimerSetMetricRegistry");
+ 	return -EINVAL;
+     }
+ 
+-    server.metrics[SERVER_PID] = mmv_lookup_value_desc(map, "pid", NULL);
+-    server.metrics[SERVER_CPU_USR] = mmv_lookup_value_desc(map, "cpu.user", NULL);
+-    server.metrics[SERVER_CPU_SYS] = mmv_lookup_value_desc(map, "cpu.sys", NULL);
+-    server.metrics[SERVER_CPU_TOT] = mmv_lookup_value_desc(map, "cpu.total", NULL);
+-    server.metrics[SERVER_MEM_MAXRSS] = mmv_lookup_value_desc(map, "mem.maxrss", NULL);
+-    server.metrics[SERVER_MEM_DATASZ] = mmv_lookup_value_desc(map, "mem.datasz", NULL);
++    ap = server.metrics;
++    ap[SERVER_PID] = mmv_lookup_value_desc(map, "pid", NULL);
++    ap[SERVER_CPU_USR] = mmv_lookup_value_desc(map, "cpu.user", NULL);
++    ap[SERVER_CPU_SYS] = mmv_lookup_value_desc(map, "cpu.sys", NULL);
++    ap[SERVER_CPU_TOT] = mmv_lookup_value_desc(map, "cpu.total", NULL);
++    ap[SERVER_MEM_MAXRSS] = mmv_lookup_value_desc(map, "mem.maxrss", NULL);
++    ap[SERVER_MEM_DATASZ] = mmv_lookup_value_desc(map, "mem.datasz", NULL);
++    ap[SERVER_MAP_CONTEXT_SIZE] = mmv_lookup_value_desc(map, "map.context.size", NULL);
++    ap[SERVER_MAP_METRIC_SIZE] = mmv_lookup_value_desc(map, "map.metric.size", NULL);
++    ap[SERVER_MAP_LABEL_SIZE] = mmv_lookup_value_desc(map, "map.label.size", NULL);
++    ap[SERVER_MAP_INST_SIZE] = mmv_lookup_value_desc(map, "map.instance.size", NULL);
+ 
+     /* PID doesn't change, set it once */
+     mmv_set(map, server.metrics[SERVER_PID], &pid);
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c pcp-5.3.7/src/libpcp_web/src/webgroup.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/libpcp_web/src/webgroup.c	2023-07-05 13:42:53.414025716 +1000
+@@ -44,10 +44,8 @@ enum matches { MATCH_EXACT, MATCH_GLOB,
+ enum profile { PROFILE_ADD, PROFILE_DEL };
+ 
+ enum webgroup_metric {
+-    CONTEXT_MAP_SIZE,
+-    NAMES_MAP_SIZE,
+-    LABELS_MAP_SIZE,
+-    INST_MAP_SIZE,
++    WEBGROUP_GC_COUNT,
++    WEBGROUP_GC_DROPS,
+     NUM_WEBGROUP_METRIC
+ };
+ 
+@@ -64,7 +62,6 @@ typedef struct webgroups {
+     uv_mutex_t		mutex;
+ 
+     unsigned int	active;
+-    int			timerid;
+ } webgroups;
+ 
+ static struct webgroups *
+@@ -76,7 +73,6 @@ webgroups_lookup(pmWebGroupModule *modul
+ 	module->privdata = calloc(1, sizeof(struct webgroups));
+ 	groups = (struct webgroups *)module->privdata;
+ 	uv_mutex_init(&groups->mutex);
+-	groups->timerid = -1;
+     }
+     return groups;
+ }
+@@ -292,8 +288,6 @@ webgroup_timers_stop(struct webgroups *g
+     if (groups->active) {
+ 	uv_timer_stop(&groups->timer);
+ 	uv_close((uv_handle_t *)&groups->timer, NULL);
+-	pmWebTimerRelease(groups->timerid);
+-	groups->timerid = -1;
+ 	groups->active = 0;
+     }
+ }
+@@ -336,28 +330,15 @@ webgroup_garbage_collect(struct webgroup
+ 	uv_mutex_unlock(&groups->mutex);
+     }
+ 
++    mmv_set(groups->map, groups->metrics[WEBGROUP_GC_DROPS], &drops);
++    mmv_set(groups->map, groups->metrics[WEBGROUP_GC_COUNT], &count);
++
+     if (pmDebugOptions.http || pmDebugOptions.libweb)
+ 	fprintf(stderr, "%s: finished [%u drops from %u entries]\n",
+ 			"webgroup_garbage_collect", drops, count);
+ }
+ 
+ static void
+-refresh_maps_metrics(void *data)
+-{
+-    struct webgroups	*groups = (struct webgroups *)data;
+-    unsigned int	value;
+-
+-    value = contextmap? dictSize(contextmap) : 0;
+-    mmv_set(groups->map, groups->metrics[CONTEXT_MAP_SIZE], &value);
+-    value = namesmap? dictSize(namesmap) : 0;
+-    mmv_set(groups->map, groups->metrics[NAMES_MAP_SIZE], &value);
+-    value = labelsmap? dictSize(labelsmap) : 0;
+-    mmv_set(groups->map, groups->metrics[LABELS_MAP_SIZE], &value);
+-    value = instmap? dictSize(instmap) : 0;
+-    mmv_set(groups->map, groups->metrics[INST_MAP_SIZE], &value);
+-}
+-
+-static void
+ webgroup_worker(uv_timer_t *arg)
+ {
+     uv_handle_t		*handle = (uv_handle_t *)arg;
+@@ -425,8 +406,6 @@ webgroup_lookup_context(pmWebGroupSettin
+ 	groups->timer.data = (void *)groups;
+ 	uv_timer_start(&groups->timer, webgroup_worker,
+ 			default_worker, default_worker);
+-	/* timer for map stats refresh */
+-	groups->timerid = pmWebTimerRegister(refresh_maps_metrics, groups);
+     }
+ 
+     if (*id == NULL) {
+@@ -2360,36 +2339,21 @@ pmWebGroupSetupMetrics(pmWebGroupModule
+     if (groups == NULL || groups->registry == NULL)
+ 	return; /* no metric registry has been set up */
+ 
+-    /*
+-     * Reverse mapping dict metrics
+-     */
+-    mmv_stats_add_metric(groups->registry, "contextmap.size", 1,
+-	MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
+-	"context map dictionary size",
+-	"Number of entries in the context map dictionary");
+-
+-    mmv_stats_add_metric(groups->registry, "namesmap.size", 2,
+-	MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
+-	"metric names map dictionary size",
+-	"Number of entries in the metric names map dictionary");
+-
+-    mmv_stats_add_metric(groups->registry, "labelsmap.size", 3,
++    mmv_stats_add_metric(groups->registry, "gc.context.scans", 1,
+ 	MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
+-	"labels map dictionary size",
+-	"Number of entries in the labels map dictionary");
++	"contexts scanned in last garbage collection",
++	"Contexts scanned during most recent webgroup garbage collection");
+ 
+-    mmv_stats_add_metric(groups->registry, "instmap.size", 4,
++    mmv_stats_add_metric(groups->registry, "gc.context.drops", 2,
+ 	MMV_TYPE_U32, MMV_SEM_INSTANT, nounits, MMV_INDOM_NULL,
+-	"instance name map dictionary size",
+-	"Number of entries in the instance name map dictionary");
++	"contexts dropped in last garbage collection",
++	"Contexts dropped during most recent webgroup garbage collection");
+ 
+     groups->map = map = mmv_stats_start(groups->registry);
+ 
+     ap = groups->metrics;
+-    ap[CONTEXT_MAP_SIZE] = mmv_lookup_value_desc(map, "contextmap.size", NULL);
+-    ap[NAMES_MAP_SIZE] = mmv_lookup_value_desc(map, "namesmap.size", NULL);
+-    ap[LABELS_MAP_SIZE] = mmv_lookup_value_desc(map, "labelsmap.size", NULL);
+-    ap[INST_MAP_SIZE] = mmv_lookup_value_desc(map, "instmap.size", NULL);
++    ap[WEBGROUP_GC_DROPS] = mmv_lookup_value_desc(map, "gc.context.scans", NULL);
++    ap[WEBGROUP_GC_COUNT] = mmv_lookup_value_desc(map, "gc.context.drops", NULL);
+ }
+ 
+ 
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/http.c pcp-5.3.7/src/pmproxy/src/http.c
+--- pcp-5.3.7.orig/src/pmproxy/src/http.c	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pmproxy/src/http.c	2023-07-05 13:43:00.414035625 +1000
+@@ -581,7 +581,7 @@ http_add_parameter(dict *parameters,
+     return 0;
+ }
+ 
+-static int
++int
+ http_parameters(const char *url, size_t length, dict **parameters)
+ {
+     const char		*end = url + length;
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/http.h pcp-5.3.7/src/pmproxy/src/http.h
+--- pcp-5.3.7.orig/src/pmproxy/src/http.h	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pmproxy/src/http.h	2023-07-05 13:43:00.414035625 +1000
+@@ -64,6 +64,7 @@ extern void http_transfer(struct client
+ extern void http_reply(struct client *, sds, http_code_t, http_flags_t, http_options_t);
+ extern void http_error(struct client *, http_code_t, const char *);
+ 
++extern int http_parameters(const char *, size_t, dict **);
+ extern int http_decode(const char *, size_t, sds);
+ extern const char *http_status_mapping(http_code_t);
+ extern const char *http_content_type(http_flags_t);
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/search.c pcp-5.3.7/src/pmproxy/src/search.c
+--- pcp-5.3.7.orig/src/pmproxy/src/search.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/pmproxy/src/search.c	2023-07-05 13:42:53.414025716 +1000
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020 Red Hat.
++ * Copyright (c) 2020,2022 Red Hat.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -253,6 +253,9 @@ on_pmsearch_done(int status, void *arg)
+ 	flags |= HTTP_FLAG_JSON;
+     }
+     http_reply(client, msg, code, flags, options);
++
++    /* release lock of pmsearch_request_done */
++    client_put(client);
+ }
+ 
+ static void
+@@ -481,6 +484,9 @@ pmsearch_request_done(struct client *cli
+     pmSearchBaton	*baton = (pmSearchBaton *)client->u.http.data;
+     int			sts;
+ 
++    /* reference to prevent freeing while waiting for a Redis reply callback */
++    client_get(client);
++
+     if (client->u.http.parser.status_code) {
+ 	on_pmsearch_done(-EINVAL, baton);
+ 	return 1;
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/series.c pcp-5.3.7/src/pmproxy/src/series.c
+--- pcp-5.3.7.orig/src/pmproxy/src/series.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/pmproxy/src/series.c	2023-07-05 13:43:00.414035625 +1000
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019-2020 Red Hat.
++ * Copyright (c) 2019-2020,2022 Red Hat.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -12,6 +12,7 @@
+  * License for more details.
+  */
+ #include "server.h"
++#include "util.h"
+ #include <assert.h>
+ 
+ typedef enum pmSeriesRestKey {
+@@ -592,6 +593,9 @@ on_pmseries_done(int status, void *arg)
+ 	flags |= HTTP_FLAG_JSON;
+     }
+     http_reply(client, msg, code, flags, options);
++
++    /* release lock of pmseries_request_done */
++    client_put(client);
+ }
+ 
+ static void
+@@ -824,30 +828,26 @@ static int
+ pmseries_request_body(struct client *client, const char *content, size_t length)
+ {
+     pmSeriesBaton	*baton = (pmSeriesBaton *)client->u.http.data;
+-    sds			series;
+ 
+     if (pmDebugOptions.http)
+ 	fprintf(stderr, "series servlet body (client=%p)\n", client);
+ 
+-    if (client->u.http.parser.method != HTTP_POST)
++    if (client->u.http.parser.method != HTTP_POST || client->u.http.parameters != NULL)
+ 	return 0;
+ 
+     switch (baton->restkey) {
+     case RESTKEY_LOAD:
+     case RESTKEY_QUERY:
+-	sdsfree(baton->query);
+-	baton->query = sdsnewlen(content, length);
+-	break;
+-
+     case RESTKEY_DESC:
+     case RESTKEY_INSTS:
+     case RESTKEY_LABELS:
+     case RESTKEY_METRIC:
+     case RESTKEY_SOURCE:
+     case RESTKEY_VALUES:
+-	series = sdsnewlen(content, length);
+-	baton->sids = sdssplitlen(series, length, "\n", 1, &baton->nsids);
+-	sdsfree(series);
++	/* parse URL encoded parameters in the request body */
++	/* in the same way as the URL query string */
++	http_parameters(content, length, &client->u.http.parameters);
++	pmseries_setup_request_parameters(client, baton, client->u.http.parameters);
+ 	break;
+ 
+     default:
+@@ -890,10 +890,16 @@ pmseries_request_load(struct client *cli
+ 	message = sdsnewlen(failed, sizeof(failed) - 1);
+ 	http_reply(client, message, HTTP_STATUS_BAD_REQUEST,
+ 			HTTP_FLAG_JSON, baton->options);
++
++	/* release lock of pmseries_request_done */
++	client_put(client);
+     } else if (baton->working) {
+ 	message = sdsnewlen(loading, sizeof(loading) - 1);
+ 	http_reply(client, message, HTTP_STATUS_CONFLICT,
+ 			HTTP_FLAG_JSON, baton->options);
++
++	/* release lock of pmseries_request_done */
++	client_put(client);
+     } else {
+         baton->loading.data = baton;         
+ 	uv_queue_work(client->proxy->events, &baton->loading,
+@@ -907,6 +913,9 @@ pmseries_request_done(struct client *cli
+     pmSeriesBaton	*baton = (pmSeriesBaton *)client->u.http.data;
+     int			sts;
+ 
++    /* reference to prevent freeing while waiting for a Redis reply callback */
++    client_get(client);
++
+     if (client->u.http.parser.status_code) {
+ 	on_pmseries_done(-EINVAL, baton);
+ 	return 1;
+diff -Naurp pcp-5.3.7.orig/src/pmproxy/src/server.c pcp-5.3.7/src/pmproxy/src/server.c
+--- pcp-5.3.7.orig/src/pmproxy/src/server.c	2023-07-05 13:42:25.533986251 +1000
++++ pcp-5.3.7/src/pmproxy/src/server.c	2023-07-05 13:42:53.424025730 +1000
+@@ -180,7 +180,9 @@ signal_init(struct proxy *proxy)
+ {
+     uv_loop_t		*loop = proxy->events;
+ 
++#if defined(HAVE_SIGPIPE)
+     signal(SIGPIPE, SIG_IGN);
++#endif
+ 
+     uv_signal_init(loop, &sighup);
+     uv_signal_init(loop, &sigint);
+@@ -310,6 +312,20 @@ on_write_callback(uv_callback_t *handle,
+     struct client		*client = (struct client *)request->writer.data;
+     int				sts;
+ 
++    /*
++     * client_write() checks if the client is opened, and calls
++     * uv_callback_fire(&proxy->write_callbacks, ...).
++     * In a later loop iteration, on_write_callback() is called and tries
++     * to write to the client.  However, the client can be closed between
++     * the call to uv_callback_fire() and the actual on_write_callback()
++     * callback.  Therefore we need to check this condition again.
++     */
++    if (client_is_closed(client)) {
++	/* release lock of client_write */
++	client_put(client);
++	return 0;
++    }
++
+     (void)handle;
+     if (pmDebugOptions.af)
+ 	fprintf(stderr, "%s: client=%p\n", "on_write_callback", client);
+@@ -325,6 +341,9 @@ on_write_callback(uv_callback_t *handle,
+ 	}
+     } else
+ 	secure_client_write(client, request);
++
++    /* release lock of client_write */
++    client_put(client);
+     return 0;
+ }
+ 
+@@ -353,6 +372,8 @@ client_write(struct client *client, sds
+ 	request->writer.data = client;
+ 	request->callback = on_client_write;
+ 
++	/* client must not get freed while waiting for the write callback to fire */
++	client_get(client);
+ 	uv_callback_fire(&proxy->write_callbacks, request, NULL);
+     } else {
+ 	client_close(client);

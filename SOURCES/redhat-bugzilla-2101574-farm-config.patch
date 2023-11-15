@@ -1,0 +1,103 @@
+From 73c024c64f7db68fdcd224c27c1711fa6dd1d254 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Date: Tue, 28 Jun 2022 10:06:06 +1000
+Subject: [PATCH] pmlogger_farm: add default configuration file for farm
+ loggers
+
+Provide a mechanism whereby the farm loggers can be configured.
+There has been reluctance in the past to sharing configuration
+of the local primary logger, so these are now done separately.
+Makes sense to me as the primary pmlogger may need to use more
+frequent sampling, may not want to allow remote pmlc, etc.
+
+Resolves Red Hat BZ #2101574
+---
+ src/pmlogger/GNUmakefile            |  1 +
+ src/pmlogger/pmlogger.defaults      |  2 ++
+ src/pmlogger/pmlogger_check.sh      |  5 +++--
+ src/pmlogger/pmlogger_farm.defaults | 27 +++++++++++++++++++++++++++
+ 4 files changed, 33 insertions(+), 2 deletions(-)
+ create mode 100644 src/pmlogger/pmlogger_farm.defaults
+
+diff -Naurp pcp-5.3.7.orig/src/pmlogger/GNUmakefile pcp-5.3.7/src/pmlogger/GNUmakefile
+--- pcp-5.3.7.orig/src/pmlogger/GNUmakefile	2022-02-02 11:53:05.000000000 +1100
++++ pcp-5.3.7/src/pmlogger/GNUmakefile	2022-08-31 11:23:08.758672970 +1000
+@@ -45,6 +45,7 @@ install:: $(SUBDIRS)
+ 
+ install:: default
+ 	$(INSTALL) -m 775 -o $(PCP_USER) -g $(PCP_GROUP) -d $(PCP_VAR_DIR)/config/pmlogger
++	$(INSTALL) -m 644 pmlogger_farm.defaults $(PCP_SYSCONFIG_DIR)/pmlogger_farm
+ 	$(INSTALL) -m 644 pmlogger.defaults $(PCP_SYSCONFIG_DIR)/pmlogger
+ 	$(INSTALL) -m 755 -d $(PCP_SHARE_DIR)/zeroconf
+ 	$(INSTALL) -m 644 pmlogger.zeroconf $(PCP_SHARE_DIR)/zeroconf/pmlogger
+diff -Naurp pcp-5.3.7.orig/src/pmlogger/pmlogger_check.sh pcp-5.3.7/src/pmlogger/pmlogger_check.sh
+--- pcp-5.3.7.orig/src/pmlogger/pmlogger_check.sh	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pmlogger/pmlogger_check.sh	2022-08-31 11:23:08.758672970 +1000
+@@ -1,6 +1,6 @@
+ #! /bin/sh
+ #
+-# Copyright (c) 2013-2016,2018,2020-2021 Red Hat.
++# Copyright (c) 2013-2016,2018,2020-2022 Red Hat.
+ # Copyright (c) 1995-2000,2003 Silicon Graphics, Inc.  All Rights Reserved.
+ #
+ # This program is free software; you can redistribute it and/or modify it
+@@ -24,6 +24,7 @@
+ PMLOGGER="$PCP_BINADM_DIR/pmlogger"
+ PMLOGCONF="$PCP_BINADM_DIR/pmlogconf"
+ PMLOGGERENVS="$PCP_SYSCONFIG_DIR/pmlogger"
++PMLOGGERFARMENVS="$PCP_SYSCONFIG_DIR/pmlogger_farm"
+ PMLOGGERZEROCONFENVS="$PCP_SHARE_DIR/zeroconf/pmlogger"
+ 
+ # error messages should go to stderr, not the GUI notifiers
+@@ -972,8 +973,8 @@ END				{ print m }'`
+ 		    continue
+ 		fi
+ 	    else
++		envs=`grep -h ^PMLOGGER "$PMLOGGERFARMENVS" 2>/dev/null`
+ 		args="-h $host $args"
+-		envs=""
+ 		iam=""
+ 	    fi
+ 
+diff -Naurp pcp-5.3.7.orig/src/pmlogger/pmlogger.defaults pcp-5.3.7/src/pmlogger/pmlogger.defaults
+--- pcp-5.3.7.orig/src/pmlogger/pmlogger.defaults	2022-02-03 16:11:40.000000000 +1100
++++ pcp-5.3.7/src/pmlogger/pmlogger.defaults	2022-08-31 11:23:08.758672970 +1000
+@@ -1,5 +1,7 @@
+ # Environment variables for the primary pmlogger daemon.  See also
+ # the pmlogger control file and pmlogconf(1) for additional details.
++# Also see separate pmlogger_farm configuration for the non-primary
++# logger configuration settings, separate to this file.
+ # Settings defined in this file will override any settings in the
+ # pmlogger zeroconf file (if present).
+ 
+diff -Naurp pcp-5.3.7.orig/src/pmlogger/pmlogger_farm.defaults pcp-5.3.7/src/pmlogger/pmlogger_farm.defaults
+--- pcp-5.3.7.orig/src/pmlogger/pmlogger_farm.defaults	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/src/pmlogger/pmlogger_farm.defaults	2022-08-31 11:23:08.758672970 +1000
+@@ -0,0 +1,27 @@
++# Environment variables for the pmlogger farm daemons.  See also
++# pmlogger control file(s) and pmlogconf(1) for additional details.
++# Also see separate pmlogger configuration for the primary logger
++# configuration settings, separate to this file.
++
++# Behaviour regarding listening on external-facing interfaces;
++# unset PMLOGGER_LOCAL to allow connections from remote hosts.
++# A value of 0 permits remote connections, 1 permits local only.
++# PMLOGGER_LOCAL=1
++
++# Max length to which the queue of pending connections may grow
++# A value of 5 is the default.
++# PMLOGGER_MAXPENDING=5
++
++# Default sampling interval pmlogger uses when no more specific
++# interval is requested.  A value of 60 seconds is the default.
++# Both pmlogger command line (via control file) and also pmlogger
++# configuration file directives will override this value.
++# PMLOGGER_INTERVAL=60
++
++# The default behaviour, when pmlogger configuration comes from
++# pmlogconf(1), is to regenerate the configuration file and check for
++# changes whenever pmlogger is started from pmlogger_check(1).
++# If the PMDA configuration is stable, this is not necessary, and
++# setting PMLOGGER_CHECK_SKIP_LOGCONF to yes disables the regeneration
++# and checking.
++# PMLOGGER_CHECK_SKIP_LOGCONF=yes

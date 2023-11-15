@@ -1,0 +1,94 @@
+diff -Naurp pcp-5.3.7.orig/src/pmdas/bcc/Upgrade pcp-5.3.7/src/pmdas/bcc/Upgrade
+--- pcp-5.3.7.orig/src/pmdas/bcc/Upgrade	2021-08-16 14:12:25.000000000 +1000
++++ pcp-5.3.7/src/pmdas/bcc/Upgrade	2023-07-10 16:25:31.904767032 +1000
+@@ -26,8 +26,11 @@ then
+     else
+ 	sed -i -e "s,^\(bcc.*binary\),\1 notready,g" $PCP_PMCDCONF_PATH
+     fi
+-    sed -i \
+-	-e "s,python $PCP_PMDAS_DIR/bcc/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/bcc/,g" \
+-	$PCP_PMCDCONF_PATH 2>/dev/null
++    if grep -q '^bcc.*python ' "$PCP_PMCDCONF_PATH" 2>/dev/null
++    then
++	sed -i \
++	    -e "s,python $PCP_PMDAS_DIR/bcc/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/bcc/,g" \
++	    $PCP_PMCDCONF_PATH 2>/dev/null
++    fi
+ fi
+ exit 0
+diff -Naurp pcp-5.3.7.orig/src/pmdas/kvm/Upgrade pcp-5.3.7/src/pmdas/kvm/Upgrade
+--- pcp-5.3.7.orig/src/pmdas/kvm/Upgrade	2019-02-06 17:16:29.000000000 +1100
++++ pcp-5.3.7/src/pmdas/kvm/Upgrade	2023-07-10 16:25:31.904767032 +1000
+@@ -17,7 +17,7 @@
+ 
+ . $PCP_DIR/etc/pcp.env
+ 
+-if grep -q ^kvm "$PCP_PMCDCONF_PATH" 2>/dev/null
++if grep -q '^kvm.*perl.*' "$PCP_PMCDCONF_PATH" 2>/dev/null
+ then
+     sed -i -e "s,perl $PCP_PMDAS_DIR/kvm/pmdakvm.pl,$PCP_PMDAS_DIR/kvm/pmdakvm -d 95,g" $PCP_PMCDCONF_PATH 2>/dev/null
+ fi
+diff -Naurp pcp-5.3.7.orig/src/pmdas/mssql/Upgrade pcp-5.3.7/src/pmdas/mssql/Upgrade
+--- pcp-5.3.7.orig/src/pmdas/mssql/Upgrade	2021-08-16 14:12:25.000000000 +1000
++++ pcp-5.3.7/src/pmdas/mssql/Upgrade	2023-07-10 16:25:31.904767032 +1000
+@@ -17,14 +17,20 @@
+ 
+ . $PCP_DIR/etc/pcp.env
+ 
+-if grep -q ^mssql "$PCP_PMCDCONF_PATH" 2>/dev/null
++if grep -q '^mssql.*perl ' "$PCP_PMCDCONF_PATH" 2>/dev/null
+ then
+     sed -i \
+-	-e "s,python $PCP_PMDAS_DIR/mssql/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/mssql/,g" \
+ 	-e "s,perl $PCP_PMDAS_DIR/mssql/pmdamssql.pl,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/mssql/pmdamssql.python,g" \
+ 	$PCP_PMCDCONF_PATH 2>/dev/null
+ fi
+ 
++if grep -q '^mssql.*python ' "$PCP_PMCDCONF_PATH" 2>/dev/null
++then
++    sed -i \
++	-e "s,python $PCP_PMDAS_DIR/mssql/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/mssql/,g" \
++	$PCP_PMCDCONF_PATH 2>/dev/null
++fi
++
+ perlpath=`which $PCP_PERL_PROG`
+ original="$PCP_PMDAS_DIR/mssql/mssql.conf"
+ upgraded="$PCP_PMDAS_DIR/mssql/mssql.conf.tmp"
+diff -Naurp pcp-5.3.7.orig/src/pmdas/openmetrics/Upgrade pcp-5.3.7/src/pmdas/openmetrics/Upgrade
+--- pcp-5.3.7.orig/src/pmdas/openmetrics/Upgrade	2021-08-16 14:12:25.000000000 +1000
++++ pcp-5.3.7/src/pmdas/openmetrics/Upgrade	2023-07-10 16:25:31.904767032 +1000
+@@ -36,7 +36,7 @@ then
+     rm -f "$PCP_VAR_DIR/pmns/prometheus" 2>/dev/null
+ fi
+ 
+-if grep -q ^openmetrics "$PCP_PMCDCONF_PATH" 2>/dev/null
++if grep -q '^openmetrics.*python ' "$PCP_PMCDCONF_PATH" 2>/dev/null
+ then
+     sed -i -e "s,python $PCP_PMDAS_DIR/openmetrics/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/openmetrics/,g" $PCP_PMCDCONF_PATH 2>/dev/null
+ fi
+diff -Naurp pcp-5.3.7.orig/src/pmdas/postgresql/Upgrade pcp-5.3.7/src/pmdas/postgresql/Upgrade
+--- pcp-5.3.7.orig/src/pmdas/postgresql/Upgrade	2021-08-16 14:12:25.000000000 +1000
++++ pcp-5.3.7/src/pmdas/postgresql/Upgrade	2023-07-10 16:25:31.914767070 +1000
+@@ -17,14 +17,20 @@
+ 
+ . $PCP_DIR/etc/pcp.env
+ 
+-if grep -q ^postgresql "$PCP_PMCDCONF_PATH" 2>/dev/null
++if grep -q '^postgresql.*perl ' "$PCP_PMCDCONF_PATH" 2>/dev/null
+ then
+     sed -i \
+-	-e "s,python $PCP_PMDAS_DIR/postgresql/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/postgresql/,g" \
+ 	-e "s,perl $PCP_PMDAS_DIR/postgresql/pmdapostgresql.pl,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/postgresql/pmdapostgresql.python,g" \
+ 	$PCP_PMCDCONF_PATH 2>/dev/null
+ fi
+ 
++if grep -q '^postgresql.*python ' "$PCP_PMCDCONF_PATH" 2>/dev/null
++then
++    sed -i \
++	-e "s,python $PCP_PMDAS_DIR/postgresql/,$PCP_PYTHON_PROG $PCP_PMDAS_DIR/postgresql/,g" \
++	$PCP_PMCDCONF_PATH 2>/dev/null
++fi
++
+ perlpath=`which $PCP_PERL_PROG`
+ original="$PCP_PMDAS_DIR/postgresql/postgresql.conf"
+ upgraded="$PCP_PMDAS_DIR/postgresql/pmdapostgresql.conf"
