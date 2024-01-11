@@ -1,16 +1,14 @@
 Name:    pcp
-Version: 6.0.1
-Release: 5%{?dist}
+Version: 6.0.5
+Release: 4%{?dist}
 Summary: System-level performance monitoring and performance management
-License: GPLv2+ and LGPLv2+ and CC-BY
+License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 %global  artifactory https://performancecopilot.jfrog.io/artifactory
 Source0: %{artifactory}/pcp-source-release/pcp-%{version}.src.tar.gz
-
-Patch0:  redhat-bugzilla-2117074-vendored_vmlinux.h.patch
-Patch1:  redhat-bugzilla-2117074-ppc_arm_vmlinux.h.patch
-Patch2:  redhat-bugzilla-2219731-hacluster-metrics.patch
+Patch0:  redhat-bugzilla-2175602.patch
+Patch1:  redhat-bugzilla-2185803.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -97,8 +95,8 @@ Patch2:  redhat-bugzilla-2219731-hacluster-metrics.patch
 %endif
 
 # support for pmdabpf, check bcc.spec for supported architectures of libbpf-tools
-%if 0%{?fedora} >= 33 || 0%{?rhel} > 8
-%ifarch x86_64 ppc64 ppc64le aarch64
+%if 0%{?fedora} >= 37 || 0%{?rhel} > 8
+%ifarch x86_64 %{power64} aarch64
 %global disable_bpf 0
 %else
 %global disable_bpf 1
@@ -281,7 +279,7 @@ BuildRequires: perl-devel perl(strict)
 BuildRequires: perl(ExtUtils::MakeMaker) perl(LWP::UserAgent) perl(JSON)
 BuildRequires: perl(Time::HiRes) perl(Digest::MD5)
 BuildRequires: perl(XML::LibXML) perl(File::Slurp)
-BuildRequires: man %{_hostname_executable}
+BuildRequires: %{_hostname_executable}
 %if !%{disable_systemd}
 BuildRequires: systemd-devel
 %endif
@@ -2290,10 +2288,7 @@ updated policy package.
 
 
 %prep
-%setup -q
-%patch0 -p1
-%patch1 -p1
-%patch2 -p1
+%autosetup -p1
 
 %build
 # the buildsubdir macro gets defined in %%setup and is apparently only available in the next step (i.e. the %%build step)
@@ -3369,8 +3364,25 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Mon Jul 17 2023 Nathan Scott <nathans@redhat.com> - 6.0.1-5
-- Fix hacluster metrics with current Pacemaker (BZ 2222858)
+* Mon Aug 07 2023 Nathan Scott <nathans@redhat.com> - 6.0.5-4
+- Improve Event Driven Ansible integration (BZ 2185803)
+
+* Fri Jul 28 2023 Stan Cox <scox@redhat.com> - 6.0.5-3
+- Pickup the new gating configuration
+
+* Mon Jun 26 2023 Nathan Scott <nathans@redhat.com> - 6.0.5-2
+- Resolve regression in pmieconf from rebase (BZ 2175602)
+
+* Mon Jun 26 2023 Nathan Scott <nathans@redhat.com> - 6.0.5-1
+- Rebase to latest stable version of PCP (BZ 2175602)
+
+* Thu Jun 15 2023 Nathan Scott <nathans@redhat.com> - 6.0.4-2
+- Resolve an selinux issue with pmlogger_daily (BZ 2208154)
+
+* Mon May 15 2023 Nathan Scott <nathans@redhat.com> - 6.0.4-1
+- Ensure pmcd.conf not rewritten needlessly (BZ 2166819)
+- Add support for pmieconf webhook action (BZ 2185803)
+- Rebase to latest stable version of PCP (BZ 2175602)
 
 * Tue Jan 17 2023 Nathan Scott <nathans@redhat.com> - 6.0.1-4
 - Rebuild for dependency on new version of libbpf (BZ 2159276)
