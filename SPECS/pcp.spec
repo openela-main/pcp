@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 5.3.7
-Release: 17%{?dist}
+Release: 18%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPLv2+ and LGPLv2+ and CC-BY
 URL:     https://pcp.io
@@ -18,8 +18,13 @@ Patch7:  redhat-bugzilla-2093751-sudoers-docs.patch
 Patch8:  redhat-bugzilla-2101574-farm-config.patch
 Patch9:  redhat-bugzilla-2135314-pmfind-fix.patch
 Patch10: redhat-bugzilla-2139012-pmdasnmp-config.patch
-Patch11: redhat-bugzilla-2219731-hacluster-metrics.patch
-Patch12: redhat-build-jsonsl.patch
+Patch11: redhat-bugzilla-1981886-pcp-ss-fetchgroup.patch
+Patch12: redhat-bugzilla-2159207-pmproxy-rollup-fixes.patch
+Patch13: redhat-bugzilla-2139325-openmetrics-in-grafana.patch
+Patch14: redhat-bugzilla-2150889-nfsclient-srcport.patch
+Patch15: redhat-bugzilla-2219731-hacluster-metrics.patch
+Patch16: redhat-bugzilla-2211263-pmcd-conf-rewrite.patch
+Patch17: redhat-build-jsonsl.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -2285,7 +2290,6 @@ interface rules, type enforcement and file context adjustments for an
 updated policy package.
 %endif
 
-
 %prep
 %setup -q
 %patch0 -p1
@@ -2301,6 +2305,11 @@ updated policy package.
 %patch10 -p1
 %patch11 -p1
 %patch12 -p1
+%patch13 -p1
+%patch14 -p1
+%patch15 -p1
+%patch16 -p1
+%patch17 -p1
 
 %build
 # the buildsubdir macro gets defined in %setup and is apparently only available in the next step (i.e. the %build step)
@@ -3372,8 +3381,14 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Mon Jul 17 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-17
-- Fix hacluster metrics with current Pacemaker (BZ 2222857)
+* Wed Jul 05 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-18
+- Improve pmproxy handling large HTTP requests (BZ 2159207)
+- Fix hacluster metrics with current Pacemaker (BZ 2219731)
+- Ensure pmcd.conf not needlessly over written (BZ 2211263)
+
+* Thu Mar 09 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-17
+- Harden pmdaopenmetrics metric name validator (BZ 2139325)
+- Fix issues in pmdanfsclient srcport handling (BZ 2150889)
 
 * Thu Nov 17 2022 Nathan Scott <nathans@redhat.com> - 5.3.7-16
 - Ensure SNMP metrics config symlink installed (BZ 2139012)

@@ -1,0 +1,317 @@
+commit 1e216d84c6b95b4f9cb7ee6b5adf9591f8af37d5
+Author: Nathan Scott <nathans@redhat.com>
+Date:   Wed Dec 7 11:40:43 2022 +1100
+
+    pmdaopenmetrics: validate given names before using them for metrics
+    
+    Its possible pmdaopenmetrics is fed garbage accidentally, e.g. in the
+    case where a /metrics end point is not made visible and an HTTP error
+    response is returned (misconfiguration).
+    
+    Failure to safeguard this results in the generation of diagnostics in
+    the openmetrics PMDA log file at an alarming rate until all available
+    filesystem space is completely consumed.  It can also result in bogus
+    metric names being exposed to PMAPI clients.
+    
+    This commit both adds new safeguards and scales back diagnostic noise
+    from the agent.  In some places it switches to more appropriate APIs
+    for the level of logging being performed (esp. debug messages).
+    
+    Resolves Red Hat BZ #2139325
+
+diff -Naurp pcp-5.3.7.orig/qa/1191.out pcp-5.3.7/qa/1191.out
+--- pcp-5.3.7.orig/qa/1191.out	2021-11-01 13:02:26.000000000 +1100
++++ pcp-5.3.7/qa/1191.out	2023-03-09 11:49:42.372413973 +1100
+@@ -10884,13 +10884,6 @@ GC Wall Time for b5be5b9f_b0f1_47de_b436
+     inst [0 or "0 collector_name:Copy"] value 24462465
+     inst [1 or "1 collector_name:MSC"] value 49519
+ 
+-openmetrics.vmware_exporter.[root@ci-vm-10-0-138-196 [vmware_host_net_usage_average]
+-    Data Type: double  InDom: PM_INDOM_NULL 0xffffffff
+-    Semantics: instant  Units: none
+-Help:
+-vmware_host_net_usage_average
+-Error: Try again. Information not currently available
+-
+ openmetrics.vmware_exporter.vmware_datastore_accessible [VMWare datastore accessible (true / false)]
+     Data Type: double  InDom: 144.35859 0x24008c13
+     Semantics: instant  Units: none
+diff -Naurp pcp-5.3.7.orig/qa/1221.out pcp-5.3.7/qa/1221.out
+--- pcp-5.3.7.orig/qa/1221.out	2021-11-01 13:02:26.000000000 +1100
++++ pcp-5.3.7/qa/1221.out	2023-03-09 11:49:42.382414004 +1100
+@@ -7105,9 +7105,6 @@ openmetrics.thermostat.tms_jvm_gc_b5be5b
+     inst [0 or "0 collector_name:Copy"] labels {"agent":"openmetrics","collector_name":"Copy","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"instname":"0 collector_name:Copy","machineid":MACHINEID,"source":"thermostat","url":FILEURL,"userid":NUM}
+     inst [1 or "1 collector_name:MSC"] labels {"agent":"openmetrics","collector_name":"MSC","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"instname":"1 collector_name:MSC","machineid":MACHINEID,"source":"thermostat","url":FILEURL,"userid":NUM}
+ 
+-openmetrics.vmware_exporter.[root@ci-vm-10-0-138-196
+-    labels {"agent":"openmetrics","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+-
+ openmetrics.vmware_exporter.vmware_datastore_accessible
+     labels {"agent":"openmetrics","dc_name":"ha-datacenter","domainname":DOMAINNAME,"ds_cluster":"","ds_name":"name008","groupid":NUM,"hostname":HOSTNAME,"machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+     inst [0 or "0 dc_name:ha-datacenter ds_cluster: ds_name:name026"] labels {"agent":"openmetrics","dc_name":"ha-datacenter","domainname":DOMAINNAME,"ds_cluster":"","ds_name":"name026","groupid":NUM,"hostname":HOSTNAME,"instname":"0 dc_name:ha-datacenter ds_cluster: ds_name:name026","machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+@@ -15331,9 +15328,6 @@ openmetrics.thermostat.tms_jvm_gc_b5be5b
+     inst [0 or "0 collector_name:Copy"] labels {"agent":"openmetrics","collector_name":"Copy","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"instname":"0 collector_name:Copy","machineid":MACHINEID,"source":"thermostat","url":FILEURL,"userid":NUM}
+     inst [1 or "1 collector_name:MSC"] labels {"agent":"openmetrics","collector_name":"MSC","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"instname":"1 collector_name:MSC","machineid":MACHINEID,"source":"thermostat","url":FILEURL,"userid":NUM}
+ 
+-openmetrics.vmware_exporter.[root@ci-vm-10-0-138-196
+-    labels {"agent":"openmetrics","domainname":DOMAINNAME,"groupid":NUM,"hostname":HOSTNAME,"machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+-
+ openmetrics.vmware_exporter.vmware_datastore_accessible
+     labels {"agent":"openmetrics","dc_name":"ha-datacenter","domainname":DOMAINNAME,"ds_cluster":"","ds_name":"name008","groupid":NUM,"hostname":HOSTNAME,"machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+     inst [0 or "0 dc_name:ha-datacenter ds_cluster: ds_name:name026"] labels {"agent":"openmetrics","dc_name":"ha-datacenter","domainname":DOMAINNAME,"ds_cluster":"","ds_name":"name026","groupid":NUM,"hostname":HOSTNAME,"instname":"0 dc_name:ha-datacenter ds_cluster: ds_name:name026","machineid":MACHINEID,"source":"vmware_exporter","url":FILEURL,"userid":NUM}
+diff -Naurp pcp-5.3.7.orig/qa/1342 pcp-5.3.7/qa/1342
+--- pcp-5.3.7.orig/qa/1342	2021-02-17 15:27:41.000000000 +1100
++++ pcp-5.3.7/qa/1342	2023-03-09 11:49:42.382414004 +1100
+@@ -99,6 +99,8 @@ echo == Note: check $seq.full for log en
+ echo == pmdaopenmetrics LOG == >>$here/$seq.full
+ cat $PCP_LOG_DIR/pmcd/openmetrics.log >>$here/$seq.full
+ 
++# cleanup preparing for remove (else error messages here)
++$sudo rm $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.*
+ _pmdaopenmetrics_remove
+ 
+ # success, all done
+diff -Naurp pcp-5.3.7.orig/qa/1727 pcp-5.3.7/qa/1727
+--- pcp-5.3.7.orig/qa/1727	2021-09-23 14:19:12.000000000 +1000
++++ pcp-5.3.7/qa/1727	2023-03-09 11:49:42.382414004 +1100
+@@ -2,6 +2,7 @@
+ # PCP QA Test No. 1727
+ # Test duplicate instname labels in /metrics webapi when a context
+ # level label such as "hostname" is explicitly specified.
++# Test invalid OpenMetrics metric names also.
+ #
+ # Copyright (c) 2021 Red Hat.  All Rights Reserved.
+ #
+@@ -54,8 +55,17 @@ echo '# TYPE somemetric gauge'
+ echo 'somemetric{hostname="$MYHOST"} 1234'
+ EOF
+ 
+-chmod 755 $tmp.script
++cat <<EOF >$tmp.badxml
++#! /bin/bash
++
++cat $here/sadist/891688-dash-time.xml
++echo '# TYPE somemetric gauge'
++echo 'somemetric{hostname="$MYHOST"} 1234'
++EOF
++
++chmod 755 $tmp.script $tmp.badxml
+ $sudo mv $tmp.script $PCP_PMDAS_DIR/openmetrics/config.d/duplicate_instname_label.sh
++$sudo mv $tmp.badxml $PCP_PMDAS_DIR/openmetrics/config.d/invalid_metrics_badinput.sh
+ 
+ _pmdaopenmetrics_install
+ if ! _pmdaopenmetrics_wait_for_metric openmetrics.control.calls
+@@ -68,6 +78,14 @@ echo; echo === /metrics webapi listing.
+ curl -Gs 'http://localhost:44322/metrics?names=openmetrics.duplicate_instname_label.somemetric' \
+ | _filter_openmetrics_labels
+ 
++echo; echo === verify metric name validity using pminfo
++pminfo -v openmetrics
++
++# squash errors for a clean uninstall
++$sudo rm $PCP_PMDAS_DIR/openmetrics/config.d/invalid_metrics_badinput.sh
++# capture openmetrics log for posterity
++cat $PCP_LOG_DIR/pmcd/openmetrics.log >> $here/$seq.full
++
+ _pmdaopenmetrics_remove
+ 
+ # success, all done
+diff -Naurp pcp-5.3.7.orig/qa/1727.out pcp-5.3.7/qa/1727.out
+--- pcp-5.3.7.orig/qa/1727.out	2021-09-13 14:40:08.000000000 +1000
++++ pcp-5.3.7/qa/1727.out	2023-03-09 11:49:42.382414004 +1100
+@@ -8,6 +8,8 @@ QA output created by 1727
+ # TYPE openmetrics_duplicate_instname_label_somemetric gauge
+ openmetrics_duplicate_instname_label_somemetric{hostname=HOSTNAME,instid="0",instname="0 hostname:HOSTNAME",domainname=DOMAINNAME,machineid=MACHINEID,source="duplicate_instname_label"} 1234
+ 
++=== verify metric name validity using pminfo
++
+ === remove openmetrics agent ===
+ Culling the Performance Metrics Name Space ...
+ openmetrics ... done
+diff -Naurp pcp-5.3.7.orig/qa/openmetrics/samples/vmware_exporter.txt pcp-5.3.7/qa/openmetrics/samples/vmware_exporter.txt
+--- pcp-5.3.7.orig/qa/openmetrics/samples/vmware_exporter.txt	2021-11-01 13:02:26.000000000 +1100
++++ pcp-5.3.7/qa/openmetrics/samples/vmware_exporter.txt	2023-03-09 11:49:42.382414004 +1100
+@@ -1035,25 +1035,6 @@ vmware_host_net_errorsTx_summation{clust
+ # HELP vmware_host_net_usage_average vmware_host_net_usage_average
+ # TYPE vmware_host_net_usage_average gauge
+ vmware_host_net_usage_average{cluster_name="",dc_name="ha-datacenter",host_name="SOMEHOSTNAME"} 3.0
+-[root@ci-vm-10-0-138-196 ~]# curl -Gs http://localhost:9272/metrics > curl.txt
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# 
+-[root@ci-vm-10-0-138-196 ~]# cat curl.txt
+ # HELP vmware_vm_power_state VMWare VM Power state (On / Off)
+ # TYPE vmware_vm_power_state gauge
+ vmware_vm_power_state{cluster_name="",dc_name="ha-datacenter",ds_name="name026",host_name="SOMEHOSTNAME",vm_name="name023-sat61-client"} 0.0
+diff -Naurp pcp-5.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-5.3.7/src/pmdas/openmetrics/pmdaopenmetrics.python
+--- pcp-5.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pmdas/openmetrics/pmdaopenmetrics.python	2023-03-09 11:49:42.382414004 +1100
+@@ -122,7 +122,7 @@ class Metric(object):
+         #   c_units = c_api.pmUnits_int(self.munits.dimSpace, self.munits.dimTime, self.munits.dimCount,
+         #       self.munits.scaleSpace, self.munits.scaleTime, self.munits.scaleCount)
+ 
+-        self.source.pmda.log("Metric: adding new metric %s pmid=%s type=%d sem=%d singular=%s mindom=0x%x labels=%s" %
++        self.source.pmda.debug("Metric: adding metric %s pmid=%s type=%d sem=%d singular=%s mindom=0x%x labels=%s" %
+             (name, pmContext.pmIDStr(self.pmid), self.mtype, self.msem, self.singular, self.mindom, self.labels))
+ 
+         self.obj = pmdaMetric(self.pmid, self.mtype, self.mindom, self.msem, self.munits)
+@@ -565,6 +565,7 @@ class Source(object):
+         self.cluster = cluster # unique/persistent id# for nickname
+         self.path = path # pathname to .url or executable file
+         self.url = None
++        self.parse_error = False
+         self.parse_url_time = 0 # timestamp of config file when it was last parsed
+         self.is_scripted = is_scripted
+         self.pmda = thispmda # the shared pmda
+@@ -659,6 +660,19 @@ class Source(object):
+         self.pmda.log("instname_labels returning %s" % naming_labels) if self.pmda.dbg else None
+         return naming_labels
+ 
++    def valid_metric_name(self, name):
++        '''
++        Check validity of given metric name component:
++        - only contains alphanumerics and/or underscores
++          (colon removed later, allowed through here);
++        - only starts with an alphabetic character.
++        '''
++        if not name[0].isalpha():
++            return False
++        if not re.sub('[_.:]', '', name).isalnum():
++            return False
++        return True
++
+     def parse_metric_line(self, line, pcpline, helpline, typeline):
+         '''
+         Parse the sample line, identify/create corresponding metric & instance.
+@@ -687,8 +701,10 @@ class Source(object):
+                 # Nb: filter pattern is applied only to the leaf component of the full metric name
+                 if self.check_filter(sp.name, "METRIC") != "INCLUDE":
+                     self.pmda.log("Metric %s excluded by config filters" % fullname)
+-                    return
++                    return True
+                 else:
++                    if not self.valid_metric_name(sp.name):
++                        raise ValueError('invalid metric name: ' + sp.name)
+                     # new metric
+                     metricnum = self.pmids_table.intern_lookup_value(sp.name)
+                     # check if the config specifies metadata for this metric
+@@ -708,24 +724,32 @@ class Source(object):
+                     else:
+                         m.store_inst(naming_labels, sp.value)
+                     self.pmda.set_notify_change()
++        except ValueError as e:
++            if not self.parse_error:
++                self.pmda.err("cannot parse name in %s: %s" % (line, e))
++                self.parse_error = True # one-time-only error diagnostic
++            return False
+         except Exception as e:
++            if self.pmda.dbg:
++                traceback.print_exc() # traceback can be handy here
+             self.pmda.err("cannot parse/store %s: %s" % (line, e))
+-            traceback.print_exc() # traceback can be handy here
+-
++            return False
++        return True
+ 
+     def parse_lines(self, text):
+-        '''Refresh all the metric metadata as it is found, including creating
+-        new metrics.  Store away metric values for subsequent
+-        fetch()es.  Parse errors may result in exceptions.
+-        That's OK, we don't try heroics to parse non-compliant
+-        data.  Return number of metrics extracted.
+         '''
+-
++        Refresh all the metric metadata as it is found, including creating
++        new metrics.  Store away metric values for subsequent fetch()es.
++        Input parse errors result in exceptions and early termination.
++        That's OK, we don't try heroics to parse non-compliant data.
++        Return number of metrics extracted.
++        '''
+         num_metrics = 0
+         lines = text.splitlines()
+         pcpline = None
+         helpline = None
+         typeline = None
++        badness = False
+         state = "metadata"
+         for line in lines:
+             self.pmda.debug("line: %s state: %s" % (line, state)) if self.pmda.dbg else None
+@@ -762,9 +786,15 @@ class Source(object):
+                 # NB: could verify helpline/typeline lp[2] matches,
+                 # but we don't have to go out of our way to support
+                 # non-compliant exporters.
+-                self.parse_metric_line(l, pcpline, helpline, typeline)
++                if not self.parse_metric_line(l, pcpline, helpline, typeline):
++                    badness = True
++                    break  # bad metric line, skip the remainder of this file
+                 num_metrics += 1
+ 
++        # clear one-time-only error diagnostic if the situation is now resolved
++        if not badness:
++            self.parse_error = False
++
+         # NB: this logic only ever -adds- Metrics to a Source.  If a source
+         # stops supplying some metrics, then a PCP app will see a PM_ERR_INST
+         # coming back when it tries to fetch them.  We could perhaps keep the
+@@ -842,7 +872,7 @@ class Source(object):
+                 metadata = line.split(' ')[1:]
+                 self.metadatalist.append(metadata)
+             else:
+-                self.pmda.log('Warning: %s ignored unrecognised config entry "%s"' % (self.url, line))
++                self.pmda.err('%s ignored unrecognised config entry "%s"' % (self.url, line))
+ 
+         self.pmda.debug("DEBUG url: %s HEADERS: %s" % (self.url, self.headers)) if self.pmda.dbg else None
+         self.pmda.debug("DEBUG url: %s FILTERS: %s" % (self.url, self.filterlist)) if self.pmda.dbg else None
+@@ -911,8 +941,7 @@ class Source(object):
+         except Exception as e:
+             self.pmda.stats_status[self.cluster] = 'failed to fetch URL or execute script %s: %s' % (self.path, e)
+             self.pmda.stats_status_code[self.cluster] = status_code
+-            self.pmda.debug('Warning: cannot fetch URL or execute script %s: %s' % (self.path, e)) if self.pmda.dbg else None
+-            return
++            self.pmda.debug('cannot fetch URL or execute script %s: %s' % (self.path, e))
+ 
+     def refresh2(self, timeout):
+         '''
+@@ -950,7 +979,7 @@ class Source(object):
+             self.pmda.log("fetch: item=%d inst=%d m.mname=%s" % (item, inst, m.mname)) if self.pmda.dbg else None
+             return m.fetch_inst(inst)
+         except Exception as e:
+-            self.pmda.log("Warning: cannot fetch item %d inst %d: %s" % (item, inst, e))
++            self.pmda.debug("cannot fetch item %d inst %d: %s" % (item, inst, e))
+             return [c_api.PM_ERR_AGAIN, 0]
+ 
+ class OpenMetricsPMDA(PMDA):
+@@ -1468,7 +1497,7 @@ class OpenMetricsPMDA(PMDA):
+ 
+     def debug(self, s):
+         if self.dbg:
+-            super(OpenMetricsPMDA, self).log("debug: " + s)
++            super(OpenMetricsPMDA, self).dbg(s)
+ 
+     def log(self, message):
+         PMDA.log(message)
+@@ -1526,8 +1555,9 @@ if __name__ == '__main__':
+     if args.nosort:
+         sort_conf_list = False
+ 
+-    pmdadir = os.path.join(os.getenv('PCP_PMDAS_DIR'), args.root)
+     if not args.config.startswith("/"):
++        pmdadir = os.getenv('PCP_PMDAS_DIR') or '/'
++        pmdadir = os.path.join(pmdadir, args.root)
+         args.config = os.path.join(pmdadir, args.config)
+ 
+     # This PMDA starts up in the "notready" state, see the Install script where
