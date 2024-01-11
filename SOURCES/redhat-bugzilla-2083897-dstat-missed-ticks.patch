@@ -1,0 +1,74 @@
+diff -Naurp pcp-5.3.7.orig/src/pcp/dstat/pcp-dstat.1 pcp-5.3.7/src/pcp/dstat/pcp-dstat.1
+--- pcp-5.3.7.orig/src/pcp/dstat/pcp-dstat.1	2021-05-26 17:43:26.000000000 +1000
++++ pcp-5.3.7/src/pcp/dstat/pcp-dstat.1	2022-10-20 08:57:02.176922290 +1100
+@@ -1,6 +1,6 @@
+ '\"macro stdmacro
+ .\"
+-.\" Copyright (c) 2018-2020 Red Hat.
++.\" Copyright (c) 2018-2022 Red Hat.
+ .\"
+ .\" This program is free software; you can redistribute it and/or modify it
+ .\" under the terms of the GNU General Public License as published by the
+@@ -34,6 +34,7 @@
+ [\f3\-\-integer\f1]
+ [\f3\-\-nocolor\f1]
+ [\f3\-\-noheaders\f1]
++[\f3\-\-nomissed\f1]
+ [\f3\-\-noupdate\f1]
+ [\f3\-\-list\f1]
+ [\f3\-\-pidfile\f1 \f2pid-file\f1]
+@@ -404,6 +405,9 @@ disable colors
+ \fB\-\-noheaders\fR
+ disable repetitive headers
+ .TP
++\fB\-\-nomissed\fR
++disable missed ticks warnings for intermediate samples.
++.TP
+ \fB\-\-noupdate\fR
+ disable intermediate updates when \fIdelay\fR greater than 1.
+ .TP
+diff -Naurp pcp-5.3.7.orig/src/pcp/dstat/pcp-dstat.py pcp-5.3.7/src/pcp/dstat/pcp-dstat.py
+--- pcp-5.3.7.orig/src/pcp/dstat/pcp-dstat.py	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/pcp/dstat/pcp-dstat.py	2022-10-20 08:57:02.176922290 +1100
+@@ -455,6 +455,7 @@ class DstatTool(object):
+ 
+         # Internal
+         self.missed = 0
++        self.nomissed = False # report missed ticks by default
+         self.runtime = -1
+         self.plugins = []     # list of requested plugin names
+         self.allplugins = []  # list of all known plugin names
+@@ -783,7 +784,8 @@ class DstatTool(object):
+         opts.pmSetLongOption('color', 0, '', '', 'force colors')
+         opts.pmSetLongOption('nocolor', 0, '', '', 'disable colors')
+         opts.pmSetLongOption('noheaders', 0, '', '', 'disable repetitive headers')
+-        opts.pmSetLongOption('noupdate', 0, '', '', 'disable intermediate headers')
++        opts.pmSetLongOption('noupdate', 0, '', '', 'disable intermediate updates')
++        opts.pmSetLongOption('nomissed', 0, '', '', 'disable missed ticks warnings')
+         opts.pmSetLongOption('output', 1, 'o', 'file', 'write CSV output to file')
+         opts.pmSetLongOption('version', 0, 'V', '', '')
+         opts.pmSetLongOption('debug', 1, None, '', '')
+@@ -920,6 +922,8 @@ class DstatTool(object):
+             self.header = False
+         elif opt in ['noupdate']:
+             self.update = False
++        elif opt in ['nomissed']:
++            self.nomissed = True
+         elif opt in ['o', 'output']:
+             self.output = arg
+         elif opt in ['pidfile']:
+@@ -1773,12 +1777,12 @@ class DstatTool(object):
+             outputfile = open(self.output, omode)
+             outputfile.write(oline)
+ 
+-        if self.missed > 0:
++        if self.missed > 0 and self.nomissed is False:
+             line = 'missed ' + str(self.missed + 1) + ' ticks'
+             sys.stdout.write(' ' + THEME['error'] + line + THEME['input'])
+             if self.output and step == self.delay:
+                 outputfile.write(',"' + line + '"')
+-            self.missed = 0
++        self.missed = 0
+         # Finish the line
+         if not op.update and self.novalues is False:
+             sys.stdout.write('\n')
