@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 5.3.7
-Release: 19%{?dist}
+Release: 20%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPLv2+ and LGPLv2+ and CC-BY
 URL:     https://pcp.io
@@ -27,6 +27,7 @@ Patch16: redhat-bugzilla-2211263-pmcd-conf-rewrite.patch
 Patch17: redhat-build-jsonsl.patch
 Patch18: redhat-issues-RHEL-7507-pmdaopenmetrics-quoting.patch
 Patch19: redhat-issues-RHEL-7501-pmlogger_farm-selinux-policy.patch
+Patch20: redhat-issues-RHEL-30715-pmproxy-resp-proxy-disabled.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -3365,6 +3366,9 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Wed Apr 17 2024 Nathan Scott <nathans@redhat.com> - 5.3.7-20
+- Disable RESP proxying by default in pmproxy (RHEL-30715)
+
 * Tue Nov 21 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-19
 - Fix OpenMetrics PMDA mishandling systemd metrics (RHEL-7507)
 - Additional pmlogger_farm service SELinux policy (RHEL-7501)
