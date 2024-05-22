@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 5.3.7
-Release: 18%{?dist}
+Release: 19%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPLv2+ and LGPLv2+ and CC-BY
 URL:     https://pcp.io
@@ -25,6 +25,8 @@ Patch14: redhat-bugzilla-2150889-nfsclient-srcport.patch
 Patch15: redhat-bugzilla-2219731-hacluster-metrics.patch
 Patch16: redhat-bugzilla-2211263-pmcd-conf-rewrite.patch
 Patch17: redhat-build-jsonsl.patch
+Patch18: redhat-issues-RHEL-7507-pmdaopenmetrics-quoting.patch
+Patch19: redhat-issues-RHEL-7501-pmlogger_farm-selinux-policy.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -2291,25 +2293,7 @@ updated policy package.
 %endif
 
 %prep
-%setup -q
-%patch0 -p1
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
-%patch8 -p1
-%patch9 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
+%autosetup -p1
 
 %build
 # the buildsubdir macro gets defined in %setup and is apparently only available in the next step (i.e. the %build step)
@@ -3381,6 +3365,10 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Tue Nov 21 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-19
+- Fix OpenMetrics PMDA mishandling systemd metrics (RHEL-7507)
+- Additional pmlogger_farm service SELinux policy (RHEL-7501)
+
 * Wed Jul 05 2023 Nathan Scott <nathans@redhat.com> - 5.3.7-18
 - Improve pmproxy handling large HTTP requests (BZ 2159207)
 - Fix hacluster metrics with current Pacemaker (BZ 2219731)

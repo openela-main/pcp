@@ -1,0 +1,74 @@
+diff -Naurp pcp-5.3.7.orig/src/selinux/pcp.fc pcp-5.3.7/src/selinux/pcp.fc
+--- pcp-5.3.7.orig/src/selinux/pcp.fc	2023-11-21 13:25:11.689247531 +1100
++++ pcp-5.3.7/src/selinux/pcp.fc	2023-11-21 14:12:48.080744232 +1100
+@@ -1,36 +1,32 @@
+-/etc/rc\.d/init\.d/pmcd		--	gen_context(system_u:object_r:pcp_pmcd_initrc_exec_t,s0)
+-/etc/rc\.d/init\.d/pmlogger 	--      gen_context(system_u:object_r:pcp_pmlogger_initrc_exec_t,s0)
+-/etc/rc\.d/init\.d/pmproxy 	--	gen_context(system_u:object_r:pcp_pmproxy_initrc_exec_t,s0)
+-/etc/rc\.d/init\.d/pmie      --       gen_context(system_u:object_r:pcp_pmie_initrc_exec_t,s0)
+-
+ /usr/bin/pmie       --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
+-/usr/bin/pmcd	    --	    gen_context(system_u:object_r:pcp_pmcd_exec_t,s0)
+ /usr/bin/pmlogger   --      gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
+-/usr/bin/pmproxy    --      gen_context(system_u:object_r:pcp_pmproxy_exec_t,s0)
+-
+ 
+ /usr/libexec/pcp/bin/pmcd	--	gen_context(system_u:object_r:pcp_pmcd_exec_t,s0)
+-/usr/libexec/pcp/bin/pmlogger   --      gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
+ /usr/libexec/pcp/bin/pmproxy    --      gen_context(system_u:object_r:pcp_pmproxy_exec_t,s0)
+-/usr/libexec/pcp/bin/pmie     --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
++
++/usr/libexec/pcp/bin/pmie_check --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
++/usr/libexec/pcp/bin/pmie_daily --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
++/usr/libexec/pcp/bin/pmie_farm  --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
++/usr/libexec/pcp/bin/pmlogger_check  --  gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
++/usr/libexec/pcp/bin/pmlogger_daily  --  gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
++/usr/libexec/pcp/bin/pmlogger_farm   --  gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
+ 
+ /usr/libexec/pcp/lib/pmcd	--	gen_context(system_u:object_r:pcp_pmcd_initrc_exec_t,s0)
+ /usr/libexec/pcp/lib/pmlogger	--	gen_context(system_u:object_r:pcp_pmlogger_initrc_exec_t,s0)
+ /usr/libexec/pcp/lib/pmproxy	--	gen_context(system_u:object_r:pcp_pmproxy_initrc_exec_t,s0)
+ /usr/libexec/pcp/lib/pmie	--	gen_context(system_u:object_r:pcp_pmie_initrc_exec_t,s0)
+ 
+-/usr/share/pcp/lib/pmie     --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
+-
+-/usr/share/pcp/lib/pmlogger   --      gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
++/usr/share/pcp/lib/pmcd         --      gen_context(system_u:object_r:pcp_pmcd_exec_t,s0)
++/usr/share/pcp/lib/pmproxy      --      gen_context(system_u:object_r:pcp_pmproxy_exec_t,s0)
++/usr/share/pcp/lib/pmie         --      gen_context(system_u:object_r:pcp_pmie_exec_t,s0)
++/usr/share/pcp/lib/pmlogger     --      gen_context(system_u:object_r:pcp_pmlogger_exec_t,s0)
+ 
+ /var/lib/pcp(/.*)?		gen_context(system_u:object_r:pcp_var_lib_t,s0)
+ 
+ /var/lib/pcp/pmdas/.*/Install   -- gen_context(system_u:object_r:pcp_plugin_exec_t,s0)
+-/var/lib/pcp/pmdas/.*/Remove   -- gen_context(system_u:object_r:pcp_plugin_exec_t,s0)
++/var/lib/pcp/pmdas/.*/Remove    -- gen_context(system_u:object_r:pcp_plugin_exec_t,s0)
+ /var/lib/pcp/pmdas/.*/Upgrade   -- gen_context(system_u:object_r:pcp_plugin_exec_t,s0)
+ 
+ /var/log/pcp(/.*)?		gen_context(system_u:object_r:pcp_log_t,s0)
+ 
+ /var/run/pcp(/.*)?		gen_context(system_u:object_r:pcp_var_run_t,s0)
+-/var/run/pmcd\.socket    --  gen_context(system_u:object_r:pcp_var_run_t,s0)
+-/var/run/pmlogger\.primary\.socket    -l  gen_context(system_u:object_r:pcp_var_run_t,s0)
+diff -Naurp pcp-5.3.7.orig/src/selinux/pcp.te pcp-5.3.7/src/selinux/pcp.te
+--- pcp-5.3.7.orig/src/selinux/pcp.te	2023-11-21 13:25:11.690247528 +1100
++++ pcp-5.3.7/src/selinux/pcp.te	2023-11-21 14:13:03.855770809 +1100
+@@ -279,6 +279,7 @@ allow pcp_pmlogger_t pcp_pmcd_t:unix_str
+ allow pcp_pmlogger_t self:unix_dgram_socket create_socket_perms;
+ 
+ allow pcp_pmlogger_t pcp_pmlogger_exec_t:file execute_no_trans;
++allow pcp_pmlogger_t ldconfig_exec_t:file { execute execute_no_trans };
+ 
+ dontaudit pcp_pmlogger_t self:cap_userns { sys_ptrace };
+ 
+@@ -313,6 +314,10 @@ optional_policy(`
+     rpm_script_signal(pcp_pmlogger_t)
+ ')
+ 
++optional_policy(`
++    userdom_setattr_user_home_content_files(pcp_pmlogger_t)
++')
++
+ ########################################
+ #
+ # pcp_plugin local  policy
