@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.2.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -9,6 +9,7 @@ Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.t
 
 Patch1: redhat-issues-RHEL-2317-default-archive-version.patch
 Patch2: redhat-issues-RHEL-30719-pmproxy-resp-proxy-disabled.patch
+Patch3: redhat-issues-RHEL-50693-hacluster-metrics-update.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -3493,6 +3494,9 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Thu Aug 08 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-3
+- Update hacluster PMDA for pacemaker 2.1.6 crm_mon (RHEL-50693)
+
 * Wed Apr 17 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-2
 - Disable RESP proxying by default in pmproxy (RHEL-30719)
 
