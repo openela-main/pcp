@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 5.3.7
-Release: 20%{?dist}
+Release: 22%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPLv2+ and LGPLv2+ and CC-BY
 URL:     https://pcp.io
@@ -28,6 +28,11 @@ Patch17: redhat-build-jsonsl.patch
 Patch18: redhat-issues-RHEL-7507-pmdaopenmetrics-quoting.patch
 Patch19: redhat-issues-RHEL-7501-pmlogger_farm-selinux-policy.patch
 Patch20: redhat-issues-RHEL-30715-pmproxy-resp-proxy-disabled.patch
+Patch21: redhat-issues-RHEL-29708-python-day-of-year-range.patch
+Patch22: redhat-issues-RHEL-57796-pmcd-pmstore-corruption.patch
+Patch23: redhat-issues-RHEL-57799-pmpost-symlink-handling.patch
+Patch24: redhat-issues-RHEL-34586-pmproxy-pmcd-fd-leak.patch
+Patch25: redhat-issues-RHEL-57788-pmdahacluster-update.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -39,11 +44,13 @@ Patch20: redhat-issues-RHEL-30715-pmproxy-resp-proxy-disabled.patch
 %global __python2 python
 %endif
 
-# UsrMerge was completed in EL 7, however the latest 'hostname' package in EL 7 contains "Provides: /bin/hostname"
+# UsrMerge was completed in EL 7, however the latest 'hostname' package in EL 7 contains "Provides: /bin/hostname".  Likewise for /bin/ps from procps[-ng] packages.
 %if 0%{?rhel} >= 8 || 0%{?fedora} >= 17
 %global _hostname_executable /usr/bin/hostname
+%global _ps_executable /usr/bin/ps
 %else
 %global _hostname_executable /bin/hostname
+%global _ps_executable /bin/ps
 %endif
 
 %global disable_perl 0
@@ -294,7 +301,8 @@ BuildRequires: perl-devel perl(strict)
 BuildRequires: perl(ExtUtils::MakeMaker) perl(LWP::UserAgent) perl(JSON)
 BuildRequires: perl(Time::HiRes) perl(Digest::MD5)
 BuildRequires: perl(XML::LibXML) perl(File::Slurp)
-BuildRequires: man %{_hostname_executable}
+BuildRequires: %{_hostname_executable}
+BuildRequires: %{_ps_executable}
 %if !%{disable_systemd}
 BuildRequires: systemd-devel systemd-rpm-macros
 %endif
@@ -308,7 +316,8 @@ BuildRequires: qt5-qtsvg-devel
 %endif
 %endif
 
-Requires: bash xz gawk sed grep findutils which %{_hostname_executable}
+Requires: bash xz gawk sed grep coreutils diffutils findutils
+Requires: which %{_hostname_executable} %{_ps_executable}
 Requires: pcp-libs = %{version}-%{release}
 
 %if !%{disable_selinux}
@@ -3366,6 +3375,16 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Mon Sep 09 2024 Nathan Scott <nathans@redhat.com> - 5.3.7-22
+- Fix buffer sizing checks in pmstore PDU handling (RHEL-57796)
+- Guard against symlink attacks in pmpost program (RHEL-57799)
+- Fix libpcp_web webgroup slow request refcounting (RHEL-58002)
+- Update pmdahacluster for newer crm_mon versions (RHEL-57788)
+
+* Thu Aug 08 2024 Nathan Scott <nathans@redhat.com> - 5.3.7-21
+- Fix python API day-of-year out of range bug (RHEL-29708)
+- Added spec deps on ps and diffutils for diff (RHEL-17081)
+
 * Wed Apr 17 2024 Nathan Scott <nathans@redhat.com> - 5.3.7-20
 - Disable RESP proxying by default in pmproxy (RHEL-30715)
 

@@ -1,0 +1,320 @@
+diff -Naurp pcp-5.3.7.orig/qa/src/test_pcp_sockets.python pcp-5.3.7/qa/src/test_pcp_sockets.python
+--- pcp-5.3.7.orig/qa/src/test_pcp_sockets.python	1970-01-01 10:00:00.000000000 +1000
++++ pcp-5.3.7/qa/src/test_pcp_sockets.python	2024-09-09 13:47:06.848083320 +1000
+@@ -0,0 +1,23 @@
++import socket
++import cpmapi as api
++from pcp import pmapi
++
++address = 'localhost'
++port = 44321
++
++c = []
++for i in range(0, 1234):
++    print('context', i)
++    ctx = pmapi.pmContext(api.PM_CONTEXT_HOST, "local:")
++    print('created', i)
++    c.append(ctx)
++
++s = []
++for i in range(0, 1234):
++    sock = socket.socket()
++    print('socket', i)
++    sock.connect((address, port))
++    print('connect', i)
++    sock.send(b"abba\r")  # -- gives a too-large PDU
++    print('send', i)
++    # s.append(sock)  # -- exercise pduread: timeout
+diff -Naurp pcp-5.3.7.orig/src/libpcp/src/pdu.c pcp-5.3.7/src/libpcp/src/pdu.c
+--- pcp-5.3.7.orig/src/libpcp/src/pdu.c	2022-04-05 09:05:43.000000000 +1000
++++ pcp-5.3.7/src/libpcp/src/pdu.c	2024-09-09 13:47:06.869083364 +1000
+@@ -186,10 +186,7 @@ pduread(int fd, char *buf, int len, int
+ 		 * Need all parts of the PDU to be received by dead_hand
+ 		 * This enforces a low overall timeout for the whole PDU
+ 		 * (as opposed to just a timeout for individual calls to
+-		 * recv).  A more invasive alternative (better) approach
+-		 * would see all I/O performed in the main event loop,
+-		 * and I/O routines transformed to continuation-passing
+-		 * style.
++		 * recv).
+ 		 */
+ 		gettimeofday(&dead_hand, NULL);
+ 		dead_hand.tv_sec += wait.tv_sec;
+@@ -499,9 +496,10 @@ PM_FAULT_RETURN(PM_ERR_TIMEOUT);
+ 	if (len == -1) {
+ 	    if (! __pmSocketClosed()) {
+ 		char	errmsg[PM_MAXERRMSGLEN];
+-		pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: len=%d: %s",
+-			    "__pmGetPDU", fd, len,
+-			    pmErrStr_r(-oserror(), errmsg, sizeof(errmsg)));
++		if (pmDebugOptions.pdu)
++		    pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: len=%d: %s",
++			        "__pmGetPDU", fd, len,
++			        pmErrStr_r(-oserror(), errmsg, sizeof(errmsg)));
+ 	    }
+ 	}
+ 	else if (len >= (int)sizeof(php->len)) {
+@@ -520,15 +518,17 @@ PM_FAULT_RETURN(PM_ERR_TIMEOUT);
+ 	}
+ 	else if (len < 0) {
+ 	    char	errmsg[PM_MAXERRMSGLEN];
+-	    pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: len=%d: %s",
+-			"__pmGetPDU", fd, len,
+-			pmErrStr_r(len, errmsg, sizeof(errmsg)));
++	    if (pmDebugOptions.pdu)
++		pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: len=%d: %s",
++			    "__pmGetPDU", fd, len,
++			    pmErrStr_r(len, errmsg, sizeof(errmsg)));
+ 	    __pmUnpinPDUBuf(pdubuf);
+ 	    return PM_ERR_IPC;
+ 	}
+ 	else if (len > 0) {
+-	    pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: bad len=%d",
+-			"__pmGetPDU", fd, len);
++	    if (pmDebugOptions.pdu)
++		pmNotifyErr(LOG_ERR, "%s: fd=%d hdr read: bad len=%d",
++			    "__pmGetPDU", fd, len);
+ 	    __pmUnpinPDUBuf(pdubuf);
+ 	    return PM_ERR_IPC;
+ 	}
+@@ -547,8 +547,9 @@ check_read_len:
+ 	 * PDU length indicates insufficient bytes for a PDU header
+ 	 * ... looks like DOS attack like PV 935490
+ 	 */
+-	pmNotifyErr(LOG_ERR, "%s: fd=%d illegal PDU len=%d in hdr",
+-		    "__pmGetPDU", fd, php->len);
++	if (pmDebugOptions.pdu)
++	    pmNotifyErr(LOG_ERR, "%s: fd=%d illegal PDU len=%d in hdr",
++			"__pmGetPDU", fd, php->len);
+ 	__pmUnpinPDUBuf(pdubuf);
+ 	return PM_ERR_IPC;
+     }
+@@ -559,16 +560,18 @@ check_read_len:
+ 	 * (note, pmcd and pmdas have to be able to _send_ large PDUs,
+ 	 * e.g. for a pmResult or instance domain enquiry)
+ 	 */
+-	if (len < (int)(sizeof(php->len) + sizeof(php->type)))
+-	    /* PDU too short to provide a valid type */
+-	    pmNotifyErr(LOG_ERR, "%s: fd=%d bad PDU len=%d in hdr "
+-			"exceeds maximum client PDU size (%d)",
+-			"__pmGetPDU", fd, php->len, ceiling);
+-	else
+-	    pmNotifyErr(LOG_ERR, "%s: fd=%d type=0x%x bad PDU len=%d in hdr "
+-			"exceeds maximum client PDU size (%d)",
+-			"__pmGetPDU", fd, (unsigned)ntohl(php->type),
+-			php->len, ceiling);
++	if (pmDebugOptions.pdu) {
++	    if (len < (int)(sizeof(php->len) + sizeof(php->type)))
++		/* PDU too short to provide a valid type */
++		pmNotifyErr(LOG_ERR, "%s: fd=%d bad PDU len=%d in hdr"
++			    " exceeds maximum client PDU size (%d)",
++			    "__pmGetPDU", fd, php->len, ceiling);
++	    else
++		pmNotifyErr(LOG_ERR, "%s: fd=%d type=0x%x bad PDU len=%d in hdr"
++			    " exceeds maximum client PDU size (%d)",
++			    "__pmGetPDU", fd, (unsigned)ntohl(php->type),
++			    php->len, ceiling);
++	}
+ 	__pmUnpinPDUBuf(pdubuf);
+ 	return PM_ERR_TOOBIG;
+     }
+@@ -608,6 +611,10 @@ check_read_len:
+ 		__pmUnpinPDUBuf(pdubuf);
+ 		return PM_ERR_TIMEOUT;
+ 	    }
++	    else if (!pmDebugOptions.pdu) {
++		__pmUnpinPDUBuf(pdubuf);
++	        return PM_ERR_IPC;
++	    }
+ 	    else if (len < 0) {
+ 		char	errmsg[PM_MAXERRMSGLEN];
+ 		pmNotifyErr(LOG_ERR, "%s: fd=%d data read: len=%d: %s",
+@@ -641,7 +648,8 @@ check_read_len:
+ 	 * PDU type is bad ... could be a possible mem leak attack like
+ 	 * https://bugzilla.redhat.com/show_bug.cgi?id=841319
+ 	 */
+-	pmNotifyErr(LOG_ERR, "%s: fd=%d illegal PDU type=%d in hdr",
++	if (pmDebugOptions.pdu)
++	    pmNotifyErr(LOG_ERR, "%s: fd=%d illegal PDU type=%d in hdr",
+ 			"__pmGetPDU", fd, php->type);
+ 	__pmUnpinPDUBuf(pdubuf);
+ 	return PM_ERR_IPC;
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/load.h pcp-5.3.7/src/libpcp_web/src/load.h
+--- pcp-5.3.7.orig/src/libpcp_web/src/load.h	2021-02-17 15:27:41.000000000 +1100
++++ pcp-5.3.7/src/libpcp_web/src/load.h	2024-09-09 13:45:56.531933622 +1000
+@@ -42,8 +42,9 @@ typedef struct context {
+     unsigned int	setup	: 1;	/* context established */
+     unsigned int	cached	: 1;	/* context/source in cache */
+     unsigned int	garbage	: 1;	/* context pending removal */
++    unsigned int	inactive: 1;	/* context removal deferred */
+     unsigned int	updated : 1;	/* context labels are updated */
+-    unsigned int	padding : 4;	/* zero-filled struct padding */
++    unsigned int	padding : 3;	/* zero-filled struct padding */
+     unsigned int	refcount : 16;	/* currently-referenced counter */
+     unsigned int	timeout;	/* context timeout in milliseconds */
+     uv_timer_t		timer;
+diff -Naurp pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c pcp-5.3.7/src/libpcp_web/src/webgroup.c
+--- pcp-5.3.7.orig/src/libpcp_web/src/webgroup.c	2024-09-09 13:44:34.166748200 +1000
++++ pcp-5.3.7/src/libpcp_web/src/webgroup.c	2024-09-09 13:45:56.531933622 +1000
+@@ -134,9 +134,18 @@ webgroup_timeout_context(uv_timer_t *arg
+      * is returned to zero by the caller, or background cleanup
+      * finds this context and cleans it.
+      */
+-    if (cp->refcount == 0 && cp->garbage == 0) {
+-	cp->garbage = 1;
+-	uv_timer_stop(&cp->timer);
++    if (cp->refcount == 0) {
++	if (cp->garbage == 0) {
++	    cp->garbage = 1;
++	    uv_timer_stop(&cp->timer);
++	}
++    } else {
++	/*
++	 * Context timed out but still referenced, must wait
++	 * until the caller releases its reference (shortly)
++	 * before beginning garbage collection process.
++	 */
++	cp->inactive = 1;
+     }
+ }
+ 
+@@ -298,20 +307,28 @@ webgroup_garbage_collect(struct webgroup
+     dictIterator        *iterator;
+     dictEntry           *entry;
+     context_t		*cp;
+-    unsigned int	count = 0, drops = 0;
++    unsigned int	count = 0, drops = 0, garbageset = 0, inactiveset = 0;
+ 
+     if (pmDebugOptions.http || pmDebugOptions.libweb)
+-	fprintf(stderr, "%s: started\n", "webgroup_garbage_collect");
++	fprintf(stderr, "%s: started for groups %p\n",
++			"webgroup_garbage_collect", groups);
+ 
+     /* do context GC if we get the lock (else don't block here) */
+     if (uv_mutex_trylock(&groups->mutex) == 0) {
+ 	iterator = dictGetSafeIterator(groups->contexts);
+ 	for (entry = dictNext(iterator); entry;) {
+ 	    cp = (context_t *)dictGetVal(entry);
++	    if (cp->privdata != groups)
++		continue;
+ 	    entry = dictNext(iterator);
+-	    if (cp->garbage && cp->privdata == groups) {
++	    if (cp->garbage)
++		garbageset++;
++	    if (cp->inactive && cp->refcount == 0)
++		inactiveset++;
++	    if (cp->garbage || (cp->inactive && cp->refcount == 0)) {
+ 		if (pmDebugOptions.http || pmDebugOptions.libweb)
+-		    fprintf(stderr, "GC context %u (%p)\n", cp->randomid, cp);
++		    fprintf(stderr, "GC dropping context %u (%p)\n",
++				    cp->randomid, cp);
+ 		uv_mutex_unlock(&groups->mutex);
+ 		webgroup_drop_context(cp, groups);
+ 		uv_mutex_lock(&groups->mutex);
+@@ -324,7 +341,8 @@ webgroup_garbage_collect(struct webgroup
+ 	/* if dropping the last remaining context, do cleanup */
+ 	if (groups->active && drops == count) {
+ 	    if (pmDebugOptions.http || pmDebugOptions.libweb)
+-		fprintf(stderr, "%s: freezing\n", "webgroup_garbage_collect");
++		fprintf(stderr, "%s: freezing groups %p\n",
++				"webgroup_garbage_collect", groups);
+ 	    webgroup_timers_stop(groups);
+ 	}
+ 	uv_mutex_unlock(&groups->mutex);
+@@ -334,8 +352,10 @@ webgroup_garbage_collect(struct webgroup
+     mmv_set(groups->map, groups->metrics[WEBGROUP_GC_COUNT], &count);
+ 
+     if (pmDebugOptions.http || pmDebugOptions.libweb)
+-	fprintf(stderr, "%s: finished [%u drops from %u entries]\n",
+-			"webgroup_garbage_collect", drops, count);
++	fprintf(stderr, "%s: finished [%u drops from %u entries,"
++			" %u garbageset, %u inactiveset]\n",
++			"webgroup_garbage_collect", drops, count,
++			garbageset, inactiveset);
+ }
+ 
+ static void
+@@ -354,7 +374,7 @@ webgroup_use_context(struct context *cp,
+     int			sts;
+     struct webgroups    *gp = (struct webgroups *)cp->privdata;
+ 
+-    if (cp->garbage == 0) {
++    if (cp->garbage == 0 && cp->inactive == 0) {
+ 	if (cp->setup == 0) {
+ 	    if ((sts = pmReconnectContext(cp->context)) < 0) {
+ 		infofmt(*message, "cannot reconnect context: %s",
+@@ -424,7 +444,7 @@ webgroup_lookup_context(pmWebGroupSettin
+ 	    *status = -ENOTCONN;
+ 	    return NULL;
+ 	}
+-	if (cp->garbage == 0) {
++	if (cp->garbage == 0 && cp->inactive == 0) {
+ 	    access.username = cp->username;
+ 	    access.password = cp->password;
+ 	    access.realm = cp->realm;
+diff -Naurp pcp-5.3.7.orig/src/pmcd/src/client.c pcp-5.3.7/src/pmcd/src/client.c
+--- pcp-5.3.7.orig/src/pmcd/src/client.c	2018-01-15 15:49:13.000000000 +1100
++++ pcp-5.3.7/src/pmcd/src/client.c	2024-09-09 13:47:06.870083366 +1000
+@@ -74,7 +74,8 @@ NotifyEndContext(int ctx)
+ ClientInfo *
+ AcceptNewClient(int reqfd)
+ {
+-    static unsigned int	seq = 0;
++    static unsigned int	seq, saved, count;
++    static struct timeval then;
+     int			i, fd;
+     __pmSockLen		addrlen;
+     struct timeval	now;
+@@ -83,21 +84,30 @@ AcceptNewClient(int reqfd)
+     addrlen = __pmSockAddrSize();
+     fd = __pmAccept(reqfd, client[i].addr, &addrlen);
+     if (fd == -1) {
+-    	if (neterror() == EPERM) {
+-	    pmNotifyErr(LOG_NOTICE, "AcceptNewClient(%d): "
+-	 	          "Permission Denied\n", reqfd);
+-	}
+-    	else if (neterror() == ECONNABORTED) {
++	if (neterror() == ECONNABORTED) {
+ 	    /* quietly ignore this one ... */
+ 	    ;
+ 	}
+ 	else {
+-	    /*
+-	     * unexpected ... ignore the client (we used to kill off pmcd
+-	     * but that seems way too extreme)
++	    /* Permission denied or an unexpected error (e.g. EMFILE)
++	     * - rate limit the logging and make this client go away.
+ 	     */
+-	    pmNotifyErr(LOG_ERR, "AcceptNewClient(%d): Unexpected error from __pmAccept: %d: %s\n",
+-			    reqfd, neterror(), netstrerror());
++	    pmtimevalNow(&now);
++	    if (neterror() != saved || now.tv_sec > then.tv_sec + 60) {
++		if (neterror() == EPERM)
++		    pmNotifyErr(LOG_NOTICE, "AcceptNewClient(%d): "
++				"Permission Denied (%d suppressed)\n",
++				reqfd, count);
++		else
++		    pmNotifyErr(LOG_ERR, "AcceptNewClient(%d): "
++				"Accept error (%d suppressed): %d: %s\n",
++				reqfd, count, neterror(), netstrerror());
++		saved = neterror();
++		count = 0;
++	    } else {
++		count++;
++	    }
++	    then = now;
+ 	}
+ 	client[i].fd = -1;
+ 	DeleteClient(&client[i]);
+diff -Naurp pcp-5.3.7.orig/src/pmcd/src/pmcd.c pcp-5.3.7/src/pmcd/src/pmcd.c
+--- pcp-5.3.7.orig/src/pmcd/src/pmcd.c	2021-10-13 10:48:23.000000000 +1100
++++ pcp-5.3.7/src/pmcd/src/pmcd.c	2024-09-09 13:47:06.871083368 +1000
+@@ -685,7 +685,7 @@ HandleReadyAgents(__pmFdSet *readyFds)
+ }
+ 
+ static void
+-CheckNewClient(__pmFdSet * fdset, int rfd, int family)
++CheckNewClient(__pmFdSet *fdset, int rfd, int family)
+ {
+     int		s, sts, accepted = 1;
+     __uint32_t	challenge;
