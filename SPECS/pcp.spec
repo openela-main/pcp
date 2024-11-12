@@ -1,18 +1,19 @@
 Name:    pcp
-Version: 6.2.0
-Release: 5%{?dist}
+Version: 6.2.2
+Release: 6%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
 
+# Keep xx-default-archive-version.patch for the life of RHEL9
 Patch1: redhat-issues-RHEL-2317-default-archive-version.patch
-Patch2: redhat-issues-RHEL-30719-pmproxy-resp-proxy-disabled.patch
-Patch3: redhat-issues-RHEL-57796-pmcd-pmstore-corruption.patch
-Patch4: redhat-issues-RHEL-57799-pmpost-symlink-handling.patch
-Patch5: redhat-issues-RHEL-34586-pmproxy-pmcd-fd-leak.patch
-Patch6: redhat-issues-RHEL-57788-pmdahacluster-update.patch
+Patch2: redhat-issues-RHEL-30198-pmcd-logdir-tmpfiles.patch
+Patch3: revert-time64_t-i386.patch
+Patch4: redhat-issues-39159-39132-32983-39293.patch
+Patch5: redhat-issues-RHEL-40718-java-bytecode-update.patch 
+Patch6: redhat-issues-RHEL-50693-hacluster-metrics-update.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -28,11 +29,13 @@ ExcludeArch: %{ix86}
 %global __python2 python
 %endif
 
-# UsrMerge was completed in EL 7, however the latest 'hostname' package in EL 7 contains "Provides: /bin/hostname"
+# UsrMerge was completed in EL 7, however the latest 'hostname' package in EL 7 contains "Provides: /bin/hostname".  Likewise for /bin/ps from procps[-ng] packages.
 %if 0%{?rhel} >= 8 || 0%{?fedora} >= 17
 %global _hostname_executable /usr/bin/hostname
+%global _ps_executable /usr/bin/ps
 %else
 %global _hostname_executable /bin/hostname
+%global _ps_executable /bin/ps
 %endif
 
 %global disable_perl 0
@@ -111,7 +114,7 @@ ExcludeArch: %{ix86}
 
 # support for pmdabpf, check bcc.spec for supported architectures of libbpf-tools
 %if 0%{?fedora} >= 37 || 0%{?rhel} > 8
-%ifarch x86_64 %{power64} aarch64
+%ifarch x86_64 %{power64} aarch64 s390x
 %global disable_bpf 0
 %else
 %global disable_bpf 1
@@ -211,13 +214,9 @@ ExcludeArch: %{ix86}
 %global disable_noarch 1
 %endif
 
-# build pcp2arrow whenever possible (no RHEL or 32 bit x86 Fedora python3-arrow)
-%if 0%{?fedora} >= 36
-%ifarch %{ix86} x86_64
-%global disable_arrow 1
-%else
+# build pcp2arrow (no python3-arrow on RHEL or 32-bit Fedora)
+%if 0%{?fedora} >= 40
 %global disable_arrow 0
-%endif
 %else
 %global disable_arrow 1
 %endif
@@ -306,6 +305,7 @@ BuildRequires: perl(ExtUtils::MakeMaker) perl(LWP::UserAgent) perl(JSON)
 BuildRequires: perl(Time::HiRes) perl(Digest::MD5)
 BuildRequires: perl(XML::LibXML) perl(File::Slurp)
 BuildRequires: %{_hostname_executable}
+BuildRequires: %{_ps_executable}
 %if !%{disable_systemd}
 BuildRequires: systemd-devel
 %endif
@@ -322,7 +322,7 @@ BuildRequires: qt5-qtsvg-devel
 
 # Utilities used indirectly e.g. by scripts we install
 Requires: bash xz gawk sed grep coreutils diffutils findutils
-Requires: which %{_hostname_executable}
+Requires: which %{_hostname_executable} %{_ps_executable}
 Requires: pcp-libs = %{version}-%{release}
 
 %if !%{disable_selinux}
@@ -580,9 +580,11 @@ Requires: pcp-pmda-bpf
 Requires: pcp-pmda-bpftrace
 %endif
 %if !%{disable_python2} || !%{disable_python3}
+Requires: pcp-geolocate pcp-export-pcp2openmetrics pcp-export-pcp2json
+Requires: pcp-export-pcp2spark pcp-export-pcp2xml pcp-export-pcp2zabbix
 Requires: pcp-pmda-gluster pcp-pmda-zswap pcp-pmda-unbound pcp-pmda-mic
 Requires: pcp-pmda-libvirt pcp-pmda-lio pcp-pmda-openmetrics pcp-pmda-haproxy
-Requires: pcp-pmda-lmsensors pcp-pmda-netcheck pcp-pmda-rabbitmq
+Requires: pcp-pmda-lmsensors pcp-pmda-netcheck pcp-pmda-rabbitmq pcp-pmda-uwsgi
 Requires: pcp-pmda-openvswitch
 %endif
 %if !%{disable_mongodb}
@@ -869,6 +871,24 @@ Requires: %{__python2}-pcp = %{version}-%{release}
 %description export-pcp2json
 Performance Co-Pilot (PCP) front-end tools for exporting metric values
 in JSON format.
+
+#
+# pcp-export-pcp2openmetrics
+#
+%package export-pcp2openmetrics
+License: GPL-2.0-or-later
+Summary: Performance Co-Pilot tools for exporting PCP metrics in OpenMetrics format
+URL: https://pcp.io
+Requires: pcp-libs >= %{version}-%{release}
+%if !%{disable_python3}
+Requires: python3-pcp = %{version}-%{release}
+%else
+Requires: %{__python2}-pcp = %{version}-%{release}
+%endif
+
+%description export-pcp2openmetrics
+Performance Co-Pilot (PCP) front-end tools for exporting metric values
+in OpenMetrics (https://openmetrics.io/) format.
 
 #
 # pcp-export-pcp2spark
@@ -1786,6 +1806,24 @@ collecting metrics about RabbitMQ message queues.
 #end pcp-pmda-rabbitmq
 
 #
+# pcp-pmda-uwsgi
+#
+%package pmda-uwsgi
+License: GPL-2.0-or-later
+Summary: Performance Co-Pilot (PCP) metrics from uWSGI servers
+URL: https://pcp.io
+Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
+%if !%{disable_python3}
+Requires: python3-pcp
+%else
+Requires: %{__python2}-pcp
+%endif
+%description pmda-uwsgi
+This package contains the PCP Performance Metrics Domain Agent (PMDA) for
+collecting metrics from uWSGI servers.
+#end pcp-pmda-uwsgi
+
+#
 # pcp-pmda-lio
 #
 %package pmda-lio
@@ -2493,7 +2531,7 @@ sed -i '/.a$/d' pcp-devel-files
 sed -i '/\/man\//d' pcp-devel-files
 sed -i '/\/include\//d' pcp-devel-files
 
-%ifarch x86_64 ppc64 ppc64le aarch64 s390x
+%ifarch x86_64 ppc64 ppc64le aarch64 s390x riscv64
 sed -i -e 's/usr\/lib\//usr\/lib64\//' pcp-libs-files
 sed -i -e 's/usr\/lib\//usr\/lib64\//' pcp-devel-files
 sed -i -e 's/usr\/lib\//usr\/lib64\//' pcp-libs-devel-files
@@ -2542,11 +2580,11 @@ basic_manifest() {
 # Likewise, for the pcp-pmda and pcp-testsuite subpackages.
 #
 total_manifest | keep 'tutorials|/html/|pcp-doc|man.*\.[1-9].*' | cull 'out' >pcp-doc-files
-total_manifest | keep 'testsuite|pcpqa|etc/systemd/system|libpcp_fault|pcp/fault.h' >pcp-testsuite-files
+total_manifest | keep 'testsuite|pcpqa|etc/systemd/system|libpcp_fault|pcp/fault.h|pmcheck/pmda-sample' >pcp-testsuite-files
 
 basic_manifest | keep "$PCP_GUI|pcp-gui|applications|pixmaps|hicolor" | cull 'pmtime.h' >pcp-gui-files
 basic_manifest | keep 'selinux' | cull 'tmp|testsuite' >pcp-selinux-files
-basic_manifest | keep 'zeroconf|daily[-_]report|/sa$' >pcp-zeroconf-files
+basic_manifest | keep 'zeroconf|daily[-_]report|/sa$' | cull 'pmcheck' >pcp-zeroconf-files
 basic_manifest | grep -E -e 'pmiostat|pmrep|dstat|htop|pcp2csv' \
    -e 'pcp-atop|pcp-dmcache|pcp-dstat|pcp-free' \
    -e 'pcp-htop|pcp-ipcs|pcp-iostat|pcp-lvmcache|pcp-mpstat' \
@@ -2566,6 +2604,7 @@ basic_manifest | keep 'pcp2influxdb' >pcp-export-pcp2influxdb-files
 basic_manifest | keep 'pcp2xlsx' >pcp-export-pcp2xlsx-files
 basic_manifest | keep 'pcp2graphite' >pcp-export-pcp2graphite-files
 basic_manifest | keep 'pcp2json' >pcp-export-pcp2json-files
+basic_manifest | keep 'pcp2openmetrics' >pcp-export-pcp2openmetrics-files
 basic_manifest | keep 'pcp2spark' >pcp-export-pcp2spark-files
 basic_manifest | keep 'pcp2xml' >pcp-export-pcp2xml-files
 basic_manifest | keep 'pcp2zabbix' >pcp-export-pcp2zabbix-files
@@ -2643,6 +2682,7 @@ basic_manifest | keep '(etc/pcp|pmdas)/summary(/|$)' >pcp-pmda-summary-files
 basic_manifest | keep '(etc/pcp|pmdas)/systemd(/|$)' >pcp-pmda-systemd-files
 basic_manifest | keep '(etc/pcp|pmdas)/trace(/|$)' >pcp-pmda-trace-files
 basic_manifest | keep '(etc/pcp|pmdas)/unbound(/|$)' >pcp-pmda-unbound-files
+basic_manifest | keep '(etc/pcp|pmdas)/uwsgi(/|$)' >pcp-pmda-uwsgi-files
 basic_manifest | keep '(etc/pcp|pmdas)/weblog(/|$)' >pcp-pmda-weblog-files
 basic_manifest | keep '(etc/pcp|pmdas)/zimbra(/|$)' >pcp-pmda-zimbra-files
 basic_manifest | keep '(etc/pcp|pmdas)/zswap(/|$)' >pcp-pmda-zswap-files
@@ -2668,7 +2708,7 @@ for pmda_package in \
     rabbitmq redis resctrl roomtemp rpm rsyslog \
     samba sendmail shping slurm smart snmp \
     sockets statsd summary systemd \
-    unbound \
+    unbound uwsgi \
     trace \
     weblog \
     zimbra zswap ; \
@@ -2684,7 +2724,7 @@ done
 
 for export_package in \
     pcp2arrow pcp2elasticsearch pcp2graphite pcp2influxdb pcp2json \
-    pcp2spark pcp2xlsx pcp2xml pcp2zabbix zabbix-agent ; \
+    pcp2openmetrics pcp2spark pcp2xlsx pcp2xml pcp2zabbix zabbix-agent ; \
 do \
     export_packages="$export_packages pcp-export-$export_package"; \
 done
@@ -2896,6 +2936,9 @@ exit 0
 
 %preun pmda-rabbitmq
 %{pmda_remove "$1" "rabbitmq"}
+
+%preun pmda-uwsgi
+%{pmda_remove "$1" "uwsgi"}
 
 %if !%{disable_snmp}
 %preun pmda-snmp
@@ -3372,9 +3415,13 @@ fi
 
 %files pmda-rabbitmq -f pcp-pmda-rabbitmq-files.rpm
 
+%files pmda-uwsgi -f pcp-pmda-uwsgi-files.rpm
+
 %files export-pcp2graphite -f pcp-export-pcp2graphite-files.rpm
 
 %files export-pcp2json -f pcp-export-pcp2json-files.rpm
+
+%files export-pcp2openmetrics -f pcp-export-pcp2openmetrics-files.rpm
 
 %files export-pcp2spark -f pcp-export-pcp2spark-files.rpm
 
@@ -3497,17 +3544,40 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Tue Sep 17 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-5
-- Fix buffer sizing checks in pmstore PDU handling (RHEL-57805)
-- Guard against symlink attacks in pmpost program (RHEL-57810)
-- Fix libpcp_web webgroup slow request refcounting (RHEL-58306)
-- Updated pmdahacluster for newer crm_mon versions (RHEL-50693)
-
-* Thu Aug 08 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-3
+* Wed Aug 7 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-6
 - Update hacluster PMDA for pacemaker 2.1.6 crm_mon (RHEL-50693)
 
-* Wed Apr 17 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-2
-- Disable RESP proxying by default in pmproxy (RHEL-30719)
+* Thu Aug 1 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-5
+- Add rpm dependency on package providing ps(1) tool (RHEL-39491)
+- Update Java bytecode in pcp-testasuite package (RHEL-40718)
+
+* Sun Jul 7 2024 Lauren Chilton <lchilton@redhat.com> - 6.2.2-4
+- Removed excess headers for pcp2openmetrics tool (RHEL-39159)
+- Fix pcp2openmetrics '-s' option (RHEL-39132)
+- Fix pcp2openmetrics timestamps in archive mode (RHEL-32983)
+- Fix pcp2openmetrics output to adhere to prometheus parser (RHEL-39293)
+
+* Mon Jun 10 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-3
+- Revert time64_t related changes breaking i386 (RHEL-30198)
+
+* Thu May 16 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-2
+- Adjust tmpfiles.d permissions for pmcd logdir (RHEL-30198)
+
+* Wed May 15 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-1
+- Rebase to latest stable version of PCP (RHEL-30198)
+- Fix pcp2openmetrics on s390x reading from an archive (RHEL-32407)
+- Fix pcp2openmetrics -F output file option (RHEL-32674)
+- Fix pmlogdump version reporting (RHEL-32381)
+- Add timestamps for pcp2openmetrics archive option (RHEL-32369)
+- Add new metrics to monitor VMware balloon usage (RHEL-32198)
+
+* Wed Apr 10 2024 Nathan Scott <nathans@redhat.com> - 6.2.1-1
+- Rebase to latest stable version of PCP (RHEL-30198)
+- Disable pmproxy(1) RESP proxying by default (RHEL-30720)
+- Add pmcheck(1) utility to check installation (RHEL-25497)
+
+* Wed Mar 20 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-2
+- Fix python sub-package year day range issue (RHEL-25543)
 
 * Mon Feb 12 2024 Nathan Scott <nathans@redhat.com> - 6.2.0-1
 - Rebase to latest stable version of PCP (RHEL-2317)
