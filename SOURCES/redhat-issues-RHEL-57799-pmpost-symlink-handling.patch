@@ -1,0 +1,99 @@
+diff -Naurp pcp-6.2.2.orig/qa/640 pcp-6.2.2/qa/640
+--- pcp-6.2.2.orig/qa/640	2023-11-16 17:51:39.000000000 +1100
++++ pcp-6.2.2/qa/640	2024-09-17 11:47:25.607520846 +1000
+@@ -6,6 +6,10 @@
+ # years; so we now simply check the right permissions are in place
+ # and move right along...
+ #
++# Aug 2024 update
++# SuSE Issue G identifies another possible exploit, so try that
++# as well.
++#
+ # Copyright (c) 1995-2002 Silicon Graphics, Inc.  All Rights Reserved.
+ #
+ 
+@@ -17,13 +21,54 @@ echo "QA output created by $seq"
+ . ./common.filter
+ . ./common.check
+ 
+-status=0	# success is the default!
+-trap "$sudo rm -f $tmp.*; exit \$status" 0 1 2 3 15
++rm -f $seq.full
++ls -li $PCP_LOG_DIR/NOTICES $tmp/badness >>$seq.full 2>&1
++
++_cleanup()
++{
++    if [ -f $PCP_LOG_DIR/NOTICES.$seq ]
++    then
++	$sudo rm -f $PCP_LOG_DIR/NOTICES
++	$sudo mv $PCP_LOG_DIR/NOTICES.$seq $PCP_LOG_DIR/NOTICES
++    fi
++    ls -li $PCP_LOG_DIR/NOTICES $tmp/badness >>$seq.full 2>&1
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=1	# failure is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter()
++{
++    sed \
++	-e "s@$PCP_LOG_DIR@PCP_LOG_DIR@g" \
++	-e '/^pmpost:/s/\[.*]/[DATE]/' \
++    # end
++}
+ 
+ # real QA test starts here
+ pmpost=$PCP_BINADM_DIR/pmpost
+-echo "Using pmpost binary: $pmpost" > $seq.full
++echo "Using pmpost binary: $pmpost" >>$seq.full
+ test -u "$pmpost" && echo "FAIL: pmpost has setuid bit set"
+ test -g "$pmpost" && echo "FAIL: pmpost has setgid bit set"
++
++$sudo mkdir $tmp || exit
++$sudo chmod 700 $tmp || exit
++$sudo -u $PCP_USER mv $PCP_LOG_DIR/NOTICES $PCP_LOG_DIR/NOTICES.$seq
++
++$sudo -u $PCP_USER ln -s $tmp/badness $PCP_LOG_DIR/NOTICES >>$seq.full
++$pmpost ordinary user 2>&1 | _filter
++$sudo ls -li $PCP_LOG_DIR/NOTICES $tmp/badness >>$seq.full 2>&1
++$sudo -u pcp $pmpost pcp user 2>&1 | _filter
++$sudo ls -li $PCP_LOG_DIR/NOTICES $tmp/badness >>$seq.full 2>&1
++$sudo $pmpost root user 2>&1 | _filter
++$sudo ls -li $PCP_LOG_DIR/NOTICES $tmp/badness >>$seq.full 2>&1
++if $sudo test -f $tmp/badness
++then
++    $sudo cat $tmp/badness
++fi
++
+ echo "Test complete"
++
++status=0
+ exit
+diff -Naurp pcp-6.2.2.orig/qa/640.out pcp-6.2.2/qa/640.out
+--- pcp-6.2.2.orig/qa/640.out	2023-11-16 17:51:39.000000000 +1100
++++ pcp-6.2.2/qa/640.out	2024-09-17 11:47:25.608520848 +1000
+@@ -1,2 +1,5 @@
+ QA output created by 640
++pmpost: unposted message: [DATE] ordinary user
++pmpost: unposted message: [DATE] pcp user
++pmpost: unposted message: [DATE] root user
+ Test complete
+diff -Naurp pcp-6.2.2.orig/src/pmpost/pmpost.c pcp-6.2.2/src/pmpost/pmpost.c
+--- pcp-6.2.2.orig/src/pmpost/pmpost.c	2023-11-16 17:51:39.000000000 +1100
++++ pcp-6.2.2/src/pmpost/pmpost.c	2024-09-17 11:47:25.608520848 +1000
+@@ -144,8 +144,12 @@ main(int argc, char **argv)
+ 	goto oops;
+     }
+ 
+-    if ((fd = open(notices, O_WRONLY|O_APPEND, 0)) < 0) {
+-	if ((fd = open(notices, O_WRONLY|O_CREAT|O_APPEND, 0664)) < 0) {
++    if ((fd = open(notices, O_WRONLY|O_APPEND|O_NOFOLLOW, 0)) < 0) {
++	if (oserror() == ELOOP) {
++	    /* last component is symlink => attack? ... bail! */
++	    goto oops;
++	}
++	if ((fd = open(notices, O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW, 0664)) < 0) {
+ 	    fprintf(stderr, "pmpost: cannot open or create file \"%s\": %s\n",
+ 		notices, osstrerror());
+ 	    goto oops;

@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.2.2
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -14,6 +14,10 @@ Patch3: revert-time64_t-i386.patch
 Patch4: redhat-issues-39159-39132-32983-39293.patch
 Patch5: redhat-issues-RHEL-40718-java-bytecode-update.patch 
 Patch6: redhat-issues-RHEL-50693-hacluster-metrics-update.patch
+Patch7: redhat-issues-RHEL-57796-pmcd-pmstore-corruption.patch
+Patch8: redhat-issues-RHEL-57799-pmpost-symlink-handling.patch
+Patch9: redhat-issues-RHEL-34586-pmproxy-pmcd-fd-leak.patch
+Patch10: redhat-issues-RHEL-57788-pmdahacluster-update.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -3544,6 +3548,12 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Tue Sep 17 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-7
+- Fix buffer sizing checks in pmstore PDU handling (RHEL-57809)
+- Guard against symlink attacks in pmpost program (RHEL-57814)
+- Fix libpcp_web webgroup slow request refcounting (RHEL-58307)
+- Updated pmdahacluster for newer crm_mon versions (RHEL-58303)
+
 * Wed Aug 7 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-6
 - Update hacluster PMDA for pacemaker 2.1.6 crm_mon (RHEL-50693)
 
