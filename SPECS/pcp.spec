@@ -1,17 +1,16 @@
 Name:    pcp
-Version: 6.3.2
-Release: 3%{?dist}
+Version: 6.3.7
+Release: 1%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
 
-Patch0: pcp-xsos-fixes.patch
 # Keep xx-default-archive-version.patch for the life of RHEL9
-Patch1: redhat-issues-RHEL-2317-default-archive-version.patch
-Patch2: redhat-issues-RHEL-58953-perl-drop-Y2038-checks.patch
-Patch3: selinux-pmie-and-pmlogger.patch
+Patch0: redhat-issues-RHEL-2317-default-archive-version.patch
+Patch1: redhat-issues-RHEL-58953-perl-drop-Y2038-checks.patch
+Patch2: fix-pmdabpf-noarch-man-page-build-failure.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -108,7 +107,7 @@ ExcludeArch: %{ix86}
 
 # support for pmdabcc, check bcc.spec for supported architectures of bcc
 %if 0%{?fedora} >= 25 || 0%{?rhel} > 6
-%ifarch x86_64 %{power64} aarch64 s390x
+%ifarch x86_64 %{power64} aarch64 s390x riscv64
 %global disable_bcc 0
 %else
 %global disable_bcc 1
@@ -119,7 +118,7 @@ ExcludeArch: %{ix86}
 
 # support for pmdabpf, check bcc.spec for supported architectures of libbpf-tools
 %if 0%{?fedora} >= 37 || 0%{?rhel} > 8
-%ifarch x86_64 %{power64} aarch64 s390x
+%ifarch x86_64 %{power64} aarch64 s390x riscv64
 %global disable_bpf 0
 %else
 %global disable_bpf 1
@@ -130,7 +129,7 @@ ExcludeArch: %{ix86}
 
 # support for pmdabpftrace, check bpftrace.spec for supported architectures of bpftrace
 %if 0%{?fedora} >= 30 || 0%{?rhel} > 7
-%ifarch x86_64 %{power64} aarch64 s390x
+%ifarch x86_64 %{power64} aarch64 s390x riscv64
 %global disable_bpftrace 0
 %else
 %global disable_bpftrace 1
@@ -167,6 +166,8 @@ ExcludeArch: %{ix86}
 %else
 %global disable_mssql 1
 %endif
+
+%global disable_mysql 0
 
 # support for pmdanutcracker (perl deps missing on rhel)
 %if 0%{?rhel} == 0
@@ -353,7 +354,6 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _pmdasdir       %{_localstatedir}/lib/pcp/pmdas
 %global _pmdasexecdir   %{_libexecdir}/pcp/pmdas
 %global _testsdir       %{_localstatedir}/lib/pcp/testsuite
-%global _ieconfigdir    %{_localstatedir}/lib/pcp/config/pmie
 %global _ieconfdir      %{_localstatedir}/lib/pcp/config/pmieconf
 %global _selinuxdir     %{_datadir}/selinux/packages/targeted
 
@@ -440,6 +440,12 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _with_mongodb --with-pmdamongodb=yes
 %endif
 
+%if %{disable_mysql}
+%global _with_mysql --with-pmdamysql=no
+%else
+%global _with_mysql --with-pmdamysql=yes
+%endif
+
 %if %{disable_nutcracker}
 %global _with_nutcracker --with-pmdanutcracker=no
 %else
@@ -479,16 +485,6 @@ then
     (cd "%1" && ./Rebuild -s && rm -f "%2")
 else
     echo "WARNING: Cannot write to %1, skipping namespace rebuild." >&2
-fi
-}
-
-%global run_pmieconf() %{expand:
-if [ -d "%1" -a -w "%1" -a -w "%1/%2" ]
-then
-    pmieconf -f "%1/%2" -c enable "%3"
-    chown pcp:pcp "%1/%2" 2>/dev/null
-else
-    echo "WARNING: Cannot write to %1/%2, skipping pmieconf enable of %3." >&2
 fi
 }
 
@@ -574,7 +570,7 @@ Obsoletes: pcp-gui-testsuite < 3.9.5
 # both of which are now obsoleted by the base pcp package
 Requires: pcp-pmda-activemq pcp-pmda-bonding pcp-pmda-dbping pcp-pmda-ds389 pcp-pmda-ds389log
 Requires: pcp-pmda-elasticsearch pcp-pmda-gpfs pcp-pmda-gpsd pcp-pmda-lustre
-Requires: pcp-pmda-memcache pcp-pmda-mysql pcp-pmda-named pcp-pmda-netfilter pcp-pmda-news
+Requires: pcp-pmda-memcache pcp-pmda-named pcp-pmda-netfilter pcp-pmda-news
 Requires: pcp-pmda-nginx pcp-pmda-nfsclient pcp-pmda-pdns pcp-pmda-postfix pcp-pmda-postgresql pcp-pmda-oracle
 Requires: pcp-pmda-samba pcp-pmda-slurm pcp-pmda-zimbra
 Requires: pcp-pmda-dm pcp-pmda-apache
@@ -613,6 +609,9 @@ Requires: pcp-pmda-mongodb
 %endif
 %if !%{disable_mssql}
 Requires: pcp-pmda-mssql 
+%endif
+%if !%{disable_mysql}
+Requires: pcp-pmda-mysql 
 %endif
 %if !%{disable_snmp}
 Requires: pcp-pmda-snmp
@@ -1327,6 +1326,7 @@ This package contains the PCP Performance Metrics Domain Agent (PMDA) for
 collecting metrics about Memcached.
 #end pcp-pmda-memcache
 
+%if !%{disable_mysql}
 #
 # pcp-pmda-mysql
 #
@@ -1343,6 +1343,7 @@ BuildRequires: perl(DBI) perl(DBD::mysql)
 This package contains the PCP Performance Metrics Domain Agent (PMDA) for
 collecting metrics about the MySQL database.
 #end pcp-pmda-mysql
+%endif
 
 #
 # pcp-pmda-named
@@ -2491,7 +2492,7 @@ sed -i "/PACKAGE_BUILD/s/=[0-9]*/=$_build/" VERSION.pcp
 %if !%{disable_python2} && 0%{?default_python} != 3
 export PYTHON=python%{?default_python}
 %endif
-%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
+%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
 make %{?_smp_mflags} default_pcp
 
 %install
@@ -2880,7 +2881,8 @@ done
 %if !%{disable_selinux}
 %selinux_relabel_pre -s targeted
 %endif
-%if 0%{?fedora} >= 32 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 11
+%elif 0%{?fedora} >= 32 || 0%{?rhel} >= 9
 echo u pcpqa - \"PCP Quality Assurance\" %{_testsdir} /bin/bash | \
   systemd-sysusers --replace=/usr/lib/sysusers.d/pcp-testsuite.conf -
 %else
@@ -2922,7 +2924,8 @@ fi
 %endif
 
 %pre
-%if 0%{?fedora} >= 32 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 11
+%elif 0%{?fedora} >= 32 || 0%{?rhel} >= 9
 echo u pcp - \"Performance Co-Pilot\" %{_localstatedir}/lib/pcp | \
   systemd-sysusers --replace=/usr/lib/sysusers.d/pcp.conf -
 %else
@@ -2989,8 +2992,10 @@ exit 0
 %{pmda_remove "$1" "snmp"}
 %endif
 
+%if !%{disable_mysql}
 %preun pmda-mysql
 %{pmda_remove "$1" "mysql"}
+%endif
 
 %preun pmda-activemq
 %{pmda_remove "$1" "activemq"}
@@ -3222,7 +3227,6 @@ fi
 PCP_PMDAS_DIR=%{_pmdasdir}
 PCP_SYSCONFIG_DIR=%{_sysconfdir}/sysconfig
 PCP_PMCDCONF_PATH=%{_confdir}/pmcd/pmcd.conf
-PCP_PMIECONFIG_DIR=%{_ieconfigdir}
 # auto-install important PMDAs for RH Support (if not present already)
 for PMDA in dm nfsclient openmetrics ; do
     if ! grep -q "$PMDA/pmda$PMDA" "$PCP_PMCDCONF_PATH"
@@ -3230,8 +3234,6 @@ for PMDA in dm nfsclient openmetrics ; do
         %{install_file "$PCP_PMDAS_DIR/$PMDA" .NeedInstall}
     fi
 done
-# auto-enable these usually optional pmie rules
-%{run_pmieconf "$PCP_PMIECONFIG_DIR" config.default dmthin}
 # managed via /usr/lib/systemd/system-preset/90-default.preset nowadays:
 %if 0%{?rhel} > 0 && 0%{?rhel} < 10
 %if !%{disable_systemd}
@@ -3402,7 +3404,7 @@ fi
 
 %files pmda-lustrecomm -f pcp-pmda-lustrecomm-files.rpm
 
-%if !%{disable_perl}
+%if !%{disable_mysql}
 %files pmda-mysql -f pcp-pmda-mysql-files.rpm
 %endif
 
@@ -3604,6 +3606,19 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Mon Mar 31 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-1
+- Update selinux policy (RHEL-39508, RHEL-83594, RHEL-83954)
+- Improvements to pmseries archive --load handling (RHEL-83914)
+- Support pmproxy REST API /metrics scrape filtering (RHEL-59228)
+
+* Fri Mar 14 2025 Nathan Scott <nathans@redhat.com> - 6.3.4-1
+- Endian issue affecting s390 with v3 archives fixed (RHEL-61501)
+- Improvement to the NVIDIA metrics install process (RHEL-80722)
+- Resolved zeroconf install pmieconf-failure warning (RHEL-78187)
+- Fixes to the pmproxy and pmlogger labels handling (RHEL-67227)
+- Fixed the pmcd/pmdaproc/pmproxy access.conf mechanism (RHEL-60891)
+- Added new per-NUMA-node per-hugepage metrics (RHEL-45876)
+
 * Fri Jan 3 2025 Sam Feifer <sfeifer@redhat.com> - 6.3.2-3
 - Fix selinux denials caused by pmie and pmlogger trying to access /dev/dm-*
 
