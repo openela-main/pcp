@@ -1,23 +1,17 @@
 Name:    pcp
-Version: 6.2.2
-Release: 7%{?dist}
+Version: 6.3.2
+Release: 3%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
 
+Patch0: pcp-xsos-fixes.patch
 # Keep xx-default-archive-version.patch for the life of RHEL9
 Patch1: redhat-issues-RHEL-2317-default-archive-version.patch
-Patch2: redhat-issues-RHEL-30198-pmcd-logdir-tmpfiles.patch
-Patch3: revert-time64_t-i386.patch
-Patch4: redhat-issues-39159-39132-32983-39293.patch
-Patch5: redhat-issues-RHEL-40718-java-bytecode-update.patch 
-Patch6: redhat-issues-RHEL-50693-hacluster-metrics-update.patch
-Patch7: redhat-issues-RHEL-57796-pmcd-pmstore-corruption.patch
-Patch8: redhat-issues-RHEL-57799-pmpost-symlink-handling.patch
-Patch9: redhat-issues-RHEL-34586-pmproxy-pmcd-fd-leak.patch
-Patch10: redhat-issues-RHEL-57788-pmdahacluster-update.patch
+Patch2: redhat-issues-RHEL-58953-perl-drop-Y2038-checks.patch
+Patch3: selinux-pmie-and-pmlogger.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -75,6 +69,13 @@ ExcludeArch: %{ix86}
 %global disable_statsd 0
 %else
 %global disable_statsd 1
+%endif
+
+# GFS2 filesystem no longer supported here
+%if 0%{?rhel} >= 10
+%global disable_gfs2 1
+%else
+%global disable_gfs2 0
 %endif
 
 %if 0%{?fedora} >= 30 || 0%{?rhel} > 7
@@ -229,6 +230,12 @@ ExcludeArch: %{ix86}
 %global disable_xlsx 0
 %else
 %global disable_xlsx 1
+%endif
+
+%if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
+%global disable_amdgpu 0
+%else
+%global disable_amdgpu 1
 %endif
 
 # prevent conflicting binary and man page install for pcp(1)
@@ -391,6 +398,12 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _with_perfevent --with-perfevent=yes
 %endif
 
+%if %{disable_gfs2}
+%global _with_gfs2 --with-pmdagfs2=no
+%else
+%global _with_gfs2 --with-pmdagfs2=yes
+%endif
+
 %if %{disable_statsd}
 %global _with_statsd --with-pmdastatsd=no
 %else
@@ -470,11 +483,12 @@ fi
 }
 
 %global run_pmieconf() %{expand:
-if [ -w "%1" ]
+if [ -d "%1" -a -w "%1" -a -w "%1/%2" ]
 then
-    pmieconf -c enable "%2"
+    pmieconf -f "%1/%2" -c enable "%3"
+    chown pcp:pcp "%1/%2" 2>/dev/null
 else
-    echo "WARNING: Cannot write to %1, skipping pmieconf enable of %2." >&2
+    echo "WARNING: Cannot write to %1/%2, skipping pmieconf enable of %3." >&2
 fi
 }
 
@@ -564,10 +578,13 @@ Requires: pcp-pmda-memcache pcp-pmda-mysql pcp-pmda-named pcp-pmda-netfilter pcp
 Requires: pcp-pmda-nginx pcp-pmda-nfsclient pcp-pmda-pdns pcp-pmda-postfix pcp-pmda-postgresql pcp-pmda-oracle
 Requires: pcp-pmda-samba pcp-pmda-slurm pcp-pmda-zimbra
 Requires: pcp-pmda-dm pcp-pmda-apache
-Requires: pcp-pmda-bash pcp-pmda-cisco pcp-pmda-gfs2 pcp-pmda-mailq pcp-pmda-mounts
+Requires: pcp-pmda-bash pcp-pmda-cisco pcp-pmda-mailq pcp-pmda-mounts
 Requires: pcp-pmda-nvidia-gpu pcp-pmda-roomtemp pcp-pmda-sendmail pcp-pmda-shping pcp-pmda-smart pcp-pmda-farm
 Requires: pcp-pmda-hacluster pcp-pmda-lustrecomm pcp-pmda-logger pcp-pmda-denki pcp-pmda-docker pcp-pmda-bind2
 Requires: pcp-pmda-sockets pcp-pmda-podman
+%if !%{disable_gfs2}
+Requires: pcp-pmda-gfs2
+%endif
 %if !%{disable_statsd}
 Requires: pcp-pmda-statsd
 %endif
@@ -607,6 +624,9 @@ Requires: pcp-pmda-json
 Requires: pcp-pmda-resctrl
 %endif
 Requires: pcp-pmda-summary pcp-pmda-trace pcp-pmda-weblog
+%if !%{disable_amdgpu}
+Requires: pcp-pmda-amdgpu
+%endif
 Requires: pcp-system-tools
 %if !%{disable_qt}
 Requires: pcp-gui
@@ -2067,6 +2087,7 @@ Reliability Metrics (FARM) Log making use of data from the smartmontools
 package.
 #end pcp-pmda-farm
 
+%if !%{disable_gfs2}
 #
 # pcp-pmda-gfs2
 #
@@ -2079,6 +2100,7 @@ Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
 This package contains the PCP Performance Metrics Domain Agent (PMDA) for
 collecting metrics about the Global Filesystem v2.
 # end pcp-pmda-gfs2
+%endif
 
 #
 # pcp-pmda-hacluster
@@ -2285,6 +2307,23 @@ collecting metrics about web server logs.
 # end pcp-pmda-weblog
 # end C pmdas
 
+%if !%{disable_amdgpu}
+#
+# pcp-pmda-amdgpu
+#
+%package pmda-amdgpu
+License: GPL-2.0-or-later
+Summary: Performance Co-Pilot (PCP) metrics from AMD GPU devices
+URL: https://pcp.io
+Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
+Requires: libdrm
+BuildRequires: libdrm-devel
+%description pmda-amdgpu
+This package contains the PCP Performance Metrics Domain Agent (PMDA) for
+extracting performance metrics from AMDGPU devices.
+# end pcp-pmda-amdgpu
+%endif
+
 %package zeroconf
 License: GPL-2.0-or-later
 Summary: Performance Co-Pilot (PCP) Zeroconf Package
@@ -2452,7 +2491,7 @@ sed -i "/PACKAGE_BUILD/s/=[0-9]*/=$_build/" VERSION.pcp
 %if !%{disable_python2} && 0%{?default_python} != 3
 export PYTHON=python%{?default_python}
 %endif
-%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
+%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
 make %{?_smp_mflags} default_pcp
 
 %install
@@ -2593,7 +2632,7 @@ basic_manifest | grep -E -e 'pmiostat|pmrep|dstat|htop|pcp2csv' \
    -e 'pcp-atop|pcp-dmcache|pcp-dstat|pcp-free' \
    -e 'pcp-htop|pcp-ipcs|pcp-iostat|pcp-lvmcache|pcp-mpstat' \
    -e 'pcp-numastat|pcp-pidstat|pcp-shping|pcp-ss' \
-   -e 'pcp-tapestat|pcp-uptime|pcp-verify' | \
+   -e 'pcp-tapestat|pcp-uptime|pcp-verify|pcp-xsos' | \
    cull 'selinux|pmlogconf|pmieconf|pmrepconf' >pcp-system-tools-files
 basic_manifest | keep 'geolocate' >pcp-geolocate-files
 basic_manifest | keep 'sar2pcp' >pcp-import-sar2pcp-files
@@ -2614,6 +2653,7 @@ basic_manifest | keep 'pcp2xml' >pcp-export-pcp2xml-files
 basic_manifest | keep 'pcp2zabbix' >pcp-export-pcp2zabbix-files
 basic_manifest | keep 'zabbix|zbxpcp' | cull pcp2zabbix >pcp-export-zabbix-agent-files
 basic_manifest | keep '(etc/pcp|pmdas)/activemq(/|$)' >pcp-pmda-activemq-files
+basic_manifest | keep '(etc/pcp|pmdas)/amdgpu(/|$)' >pcp-pmda-amdgpu-files
 basic_manifest | keep '(etc/pcp|pmdas)/apache(/|$)' >pcp-pmda-apache-files
 basic_manifest | keep '(etc/pcp|pmdas)/bash(/|$)' >pcp-pmda-bash-files
 basic_manifest | keep '(etc/pcp|pmdas)/bcc(/|$)' >pcp-pmda-bcc-files
@@ -2693,7 +2733,7 @@ basic_manifest | keep '(etc/pcp|pmdas)/zswap(/|$)' >pcp-pmda-zswap-files
 
 rm -f packages.list
 for pmda_package in \
-    activemq apache \
+    activemq amdgpu apache \
     bash bcc bind2 bonding bpf bpftrace \
     cifs cisco \
     dbping denki docker dm ds389 ds389log \
@@ -3099,8 +3139,10 @@ exit 0
 %preun pmda-farm
 %{pmda_remove "$1" "farm"}
 
+%if !%{disable_gfs2}
 %preun pmda-gfs2
 %{pmda_remove "$1" "gfs2"}
+%endif
 
 %preun pmda-hacluster
 %{pmda_remove "$1" "hacluster"}
@@ -3146,6 +3188,11 @@ exit 0
 %preun pmda-weblog
 %{pmda_remove "$1" "weblog"}
 
+%if !%{disable_amdgpu}
+%preun pmda-amdgpu
+%{pmda_remove "$1" "amdgpu"}
+%endif
+
 %preun
 if [ "$1" -eq 0 ]
 then
@@ -3184,11 +3231,12 @@ for PMDA in dm nfsclient openmetrics ; do
     fi
 done
 # auto-enable these usually optional pmie rules
-%{run_pmieconf "$PCP_PMIECONFIG_DIR" dmthin}
-%if 0%{?rhel} <= 9
+%{run_pmieconf "$PCP_PMIECONFIG_DIR" config.default dmthin}
+# managed via /usr/lib/systemd/system-preset/90-default.preset nowadays:
+%if 0%{?rhel} > 0 && 0%{?rhel} < 10
 %if !%{disable_systemd}
-    systemctl restart pcp-reboot-init pmcd pmlogger pmie >/dev/null 2>&1
-    systemctl enable pcp-reboot-init pmcd pmlogger pmie >/dev/null 2>&1
+    systemctl restart pmcd pmlogger pmie >/dev/null 2>&1
+    systemctl enable pmcd pmlogger pmie >/dev/null 2>&1
 %else
     /sbin/chkconfig --add pmcd >/dev/null 2>&1
     /sbin/chkconfig --add pmlogger >/dev/null 2>&1
@@ -3207,6 +3255,8 @@ PCP_LOG_DIR=%{_logsdir}
 %if !%{disable_systemd}
     # clean up any stale symlinks for deprecated pm*-poll services
     rm -f %{_sysconfdir}/systemd/system/pm*.requires/pm*-poll.* >/dev/null 2>&1 || true
+    systemctl restart pcp-reboot-init >/dev/null 2>&1
+    systemctl enable pcp-reboot-init >/dev/null 2>&1
 
     %systemd_postun_with_restart pmcd.service
     %systemd_post pmcd.service
@@ -3464,6 +3514,10 @@ fi
 %files pmda-openmetrics -f pcp-pmda-openmetrics-files.rpm
 %endif
 
+%if !%{disable_amdgpu}
+%files pmda-amdgpu -f pcp-pmda-amdgpu-files.rpm
+%endif
+
 %files pmda-apache -f pcp-pmda-apache-files.rpm
 
 %files pmda-bash -f pcp-pmda-bash-files.rpm
@@ -3474,7 +3528,9 @@ fi
 
 %files pmda-farm -f pcp-pmda-farm-files.rpm
 
+%if !%{disable_gfs2}
 %files pmda-gfs2 -f pcp-pmda-gfs2-files.rpm
+%endif
 
 %files pmda-hacluster -f pcp-pmda-hacluster-files.rpm
 
@@ -3548,11 +3604,29 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Tue Sep 17 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-7
-- Fix buffer sizing checks in pmstore PDU handling (RHEL-57809)
-- Guard against symlink attacks in pmpost program (RHEL-57814)
-- Fix libpcp_web webgroup slow request refcounting (RHEL-58307)
-- Updated pmdahacluster for newer crm_mon versions (RHEL-58303)
+* Fri Jan 3 2025 Sam Feifer <sfeifer@redhat.com> - 6.3.2-3
+- Fix selinux denials caused by pmie and pmlogger trying to access /dev/dm-*
+
+* Thu Nov 14 2024 Nathan Scott <nathans@redhat.com> - 6.3.2-2
+- Back-port upstream bug fixes for pcp-xsos(1).
+
+* Wed Nov 06 2024 Nathan Scott <nathans@redhat.com> - 6.3.2-1
+- Add proc PMDA access control for IO metrics (RHEL-60891)
+- Fix pmdastatsd segfaults within pmdaRehash (RHEL-57717)
+- Multiple hugepage size NUMA metric support (RHEL-45876)
+- Improve pcp-xsos command line diagnostics (RHEL-61597, RHEL-61598)
+- Add pmlogger_farm_check service selinux policy (RHEL-61885)
+- Fix v3 archive replay on big endian machines (RHEL-61501)
+- Rebase to latest stable version of PCP (RHEL-58953)
+
+* Wed Oct 2 2024 Nathan Scott <nathans@redhat.com> - 6.3.1-1
+- New pcp-xsos utility for rapid system summaries (RHEL-30590)
+- Fix Upgrade scripts to not rewrite pmcd.conf (RHEL-40631)
+- Add new Hyper-V balloon usage metrics (RHEL-45715)
+- Auto-load pmdaproc in local context (RHEL-50941)
+- Fix a benign potential libpcp buffer overflow (RHEL-58914)
+- Fix pcp-zeroconf pmie.config write permission (RHEL-59366)
+- Rebase to latest stable version of PCP (RHEL-58953)
 
 * Wed Aug 7 2024 Nathan Scott <nathans@redhat.com> - 6.2.2-6
 - Update hacluster PMDA for pacemaker 2.1.6 crm_mon (RHEL-50693)
