@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.3.7
-Release: 1%{?dist}
+Release: 5%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -10,7 +10,14 @@ Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.t
 # Keep xx-default-archive-version.patch for the life of RHEL9
 Patch0: redhat-issues-RHEL-2317-default-archive-version.patch
 Patch1: redhat-issues-RHEL-58953-perl-drop-Y2038-checks.patch
-Patch2: fix-pmdabpf-noarch-man-page-build-failure.patch
+Patch2: selinux-proc_psi_t.patch
+Patch3: selinux-pcp_pmie_t.patch
+Patch4: pmwebapi-filter-exact.patch
+Patch5: pmda-openmetrics-rollup.patch
+Patch6: pmapi-header-multilib-fix.patch
+Patch7: python-pmda-wrapper-list-fix.patch
+Patch8: systemd-tmpfiles.d-directories.patch
+Patch9: fix-pmdabpf-noarch-man-page-build-failure.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -167,7 +174,16 @@ ExcludeArch: %{ix86}
 %global disable_mssql 1
 %endif
 
+# No mysql support on 32-bit x86 platforms from el9 and later
+%ifarch %{ix86}
+%if 0%{?rhel} >= 9
+%global disable_mysql 1
+%else
 %global disable_mysql 0
+%endif
+%else
+%global disable_mysql 0
+%endif
 
 # support for pmdanutcracker (perl deps missing on rhel)
 %if 0%{?rhel} == 0
@@ -233,7 +249,7 @@ ExcludeArch: %{ix86}
 %global disable_xlsx 1
 %endif
 
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
+%if 0%{?fedora} >= 40 || 0%{?rhel} >= 9
 %global disable_amdgpu 0
 %else
 %global disable_amdgpu 1
@@ -356,6 +372,8 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _testsdir       %{_localstatedir}/lib/pcp/testsuite
 %global _ieconfdir      %{_localstatedir}/lib/pcp/config/pmieconf
 %global _selinuxdir     %{_datadir}/selinux/packages/targeted
+
+%global _with_multilib --enable-multilib=true
 
 %if 0%{?fedora} >= 20 || 0%{?rhel} >= 8
 %global _with_doc --with-docdir=%{_docdir}/%{name}
@@ -2492,7 +2510,7 @@ sed -i "/PACKAGE_BUILD/s/=[0-9]*/=$_build/" VERSION.pcp
 %if !%{disable_python2} && 0%{?default_python} != 3
 export PYTHON=python%{?default_python}
 %endif
-%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
+%configure %{?_with_multilib} %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
 make %{?_smp_mflags} default_pcp
 
 %install
@@ -3235,7 +3253,11 @@ for PMDA in dm nfsclient openmetrics ; do
     fi
 done
 # managed via /usr/lib/systemd/system-preset/90-default.preset nowadays:
-%if 0%{?rhel} > 0 && 0%{?rhel} < 10
+%if 0%{?fedora} > 40 || 0%{?rhel} > 9
+    for s in pmcd pmlogger pmie; do
+        systemctl --quiet is-enabled $s && systemctl restart $s >/dev/null 2>&1
+    done
+%else  # old-school methods follow
 %if !%{disable_systemd}
     systemctl restart pmcd pmlogger pmie >/dev/null 2>&1
     systemctl enable pmcd pmlogger pmie >/dev/null 2>&1
@@ -3606,18 +3628,29 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Fri Jun 27 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-5
+- Backport some more fixes to the OpenMetrics PMDA (RHEL-54039)
+- Fix a multilib regression in PCP header files (RHEL-93186)
+- Fix python PMDA wrapper handling of list objects
+- Improve tmpfiles.d handling of empty directories
+
+* Wed Apr 30 2025 Lauren Chilton <lchilton@redhat.com> - 6.3.7-4
+- Backport metric removal for pmdaopenmetrics
+
+* Tue Apr 22 2025 William Cohen <wcohen@redhat.com> - 6.3.7-3
+- Backport the webapi filtering fix to allow the use of exact matching. (RHEL-85792)
+
+* Tue Apr 15 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-2
+- Add selinux policy for new proc_psi_t-induced failure
+
 * Mon Mar 31 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-1
-- Update selinux policy (RHEL-39508, RHEL-83594, RHEL-83954)
-- Improvements to pmseries archive --load handling (RHEL-83914)
-- Support pmproxy REST API /metrics scrape filtering (RHEL-59228)
+- Update to latest stable version of PCP (RHEL-83482)
+
+* Fri Mar 21 2025 Frederic Berat <fberat@redhat.com> - 6.3.4-2
+- Enable AMD GPU pmda (RHEL-83154)
 
 * Fri Mar 14 2025 Nathan Scott <nathans@redhat.com> - 6.3.4-1
-- Endian issue affecting s390 with v3 archives fixed (RHEL-61501)
-- Improvement to the NVIDIA metrics install process (RHEL-80722)
-- Resolved zeroconf install pmieconf-failure warning (RHEL-78187)
-- Fixes to the pmproxy and pmlogger labels handling (RHEL-67227)
-- Fixed the pmcd/pmdaproc/pmproxy access.conf mechanism (RHEL-60891)
-- Added new per-NUMA-node per-hugepage metrics (RHEL-45876)
+- Update to latest stable version of PCP (RHEL-83482)
 
 * Fri Jan 3 2025 Sam Feifer <sfeifer@redhat.com> - 6.3.2-3
 - Fix selinux denials caused by pmie and pmlogger trying to access /dev/dm-*

@@ -1,0 +1,39 @@
+commit f7476aaaede432f851562d0e8b7f6c4e2f618e66
+Author: William Cohen <wcohen@redhat.com>
+Date:   Wed Apr 2 16:56:04 2025 -0400
+
+    libpcp_web, qa: Fix the selection and testing of exact match filtering
+    
+    Testing showed that globbing matching was being used for the exact
+    match filtering.  Corrected the code to use exact matching when
+    selected and updated qa/1543 to have the correct output when using
+    exact match for filtering.
+
+diff --git a/qa/1543.out b/qa/1543.out
+index fcaa3f4e4..9ff2f82c7 100644
+--- a/qa/1543.out
++++ b/qa/1543.out
+@@ -1041,6 +1041,10 @@ sample_long_one{role="testing",agent="sample",hostname="HOSTNAME",cluster="zero"
+ # HELP sample_long_one 1 as a 32-bit integer
+ # TYPE sample_long_one gauge
+ sample_long_one{role="testing",agent="sample",hostname="HOSTNAME",cluster="zero",domainname="DOMAINNAME",machineid="MACHINEID"} 1
++# PCP5 sample.long.ten 29.0.11 32 PM_INDOM_NULL instant none
++# HELP sample_long_ten 10 as a 32-bit integer
++# TYPE sample_long_ten gauge
++sample_long_ten{role="testing",agent="sample",hostname="HOSTNAME",cluster="zero",domainname="DOMAINNAME",machineid="MACHINEID"} 10
+ == good filter regex ==
+ # PCP5 sample.long.one 29.0.10 32 PM_INDOM_NULL instant none
+ # HELP sample_long_one 1 as a 32-bit integer
+diff --git a/src/libpcp_web/src/webgroup.c b/src/libpcp_web/src/webgroup.c
+index e0b16d1c5..8f5e8a4ea 100644
+--- a/src/libpcp_web/src/webgroup.c
++++ b/src/libpcp_web/src/webgroup.c
+@@ -2021,7 +2021,7 @@ pmWebGroupScrape(pmWebGroupSettings *settings, sds id, dict *params, void *arg)
+ 	    if (strcmp(match, "regex") == 0) {
+ 		scrape.match = MATCH_REGEX;
+ 	    } else if (strcmp(match, "exact") == 0)
+-		scrape.match = MATCH_GLOB;
++		scrape.match = MATCH_EXACT;
+ 	    else if (strcmp(match, "glob") != 0) {
+ 		infofmt(msg, "%s - invalid 'match' parameter value", match);
+ 		sts = -EINVAL;
