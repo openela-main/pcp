@@ -1,11 +1,20 @@
 Name:    pcp
 Version: 6.3.7
-Release: 1%{?dist}
+Release: 5%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
+
+Patch0: selinux-proc_psi_t.patch
+Patch1: selinux-pcp_pmie_t.patch
+Patch2: pmwebapi-filter-exact.patch
+Patch3: pmda-openmetrics-rollup.patch
+Patch4: pmapi-header-multilib-fix.patch
+Patch5: python-pmda-wrapper-list-fix.patch
+Patch6: systemd-tmpfiles.d-directories.patch
+Patch7: fix-pmdabpf-noarch-man-page-build-failure.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -162,7 +171,16 @@ ExcludeArch: %{ix86}
 %global disable_mssql 1
 %endif
 
+# No mysql support on 32-bit x86 platforms from el9 and later
+%ifarch %{ix86}
+%if 0%{?rhel} >= 9
+%global disable_mysql 1
+%else
 %global disable_mysql 0
+%endif
+%else
+%global disable_mysql 0
+%endif
 
 # support for pmdanutcracker (perl deps missing on rhel)
 %if 0%{?rhel} == 0
@@ -228,7 +246,7 @@ ExcludeArch: %{ix86}
 %global disable_xlsx 1
 %endif
 
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
+%if 0%{?fedora} >= 40 || 0%{?rhel} >= 9
 %global disable_amdgpu 0
 %else
 %global disable_amdgpu 1
@@ -351,6 +369,8 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _testsdir       %{_localstatedir}/lib/pcp/testsuite
 %global _ieconfdir      %{_localstatedir}/lib/pcp/config/pmieconf
 %global _selinuxdir     %{_datadir}/selinux/packages/targeted
+
+%global _with_multilib --enable-multilib=true
 
 %if 0%{?fedora} >= 20 || 0%{?rhel} >= 8
 %global _with_doc --with-docdir=%{_docdir}/%{name}
@@ -2487,7 +2507,7 @@ sed -i "/PACKAGE_BUILD/s/=[0-9]*/=$_build/" VERSION.pcp
 %if !%{disable_python2} && 0%{?default_python} != 3
 export PYTHON=python%{?default_python}
 %endif
-%configure %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
+%configure %{?_with_multilib} %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_json} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker} %{?_with_python2}
 make %{?_smp_mflags} default_pcp
 
 %install
@@ -3230,7 +3250,11 @@ for PMDA in dm nfsclient openmetrics ; do
     fi
 done
 # managed via /usr/lib/systemd/system-preset/90-default.preset nowadays:
-%if 0%{?rhel} > 0 && 0%{?rhel} < 10
+%if 0%{?fedora} > 40 || 0%{?rhel} > 9
+    for s in pmcd pmlogger pmie; do
+        systemctl --quiet is-enabled $s && systemctl restart $s >/dev/null 2>&1
+    done
+%else  # old-school methods follow
 %if !%{disable_systemd}
     systemctl restart pmcd pmlogger pmie >/dev/null 2>&1
     systemctl enable pmcd pmlogger pmie >/dev/null 2>&1
@@ -3601,8 +3625,24 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Fri Jun 27 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-5
+- Make pcp-zeroconf start enabled services once again (RHEL-93182)
+- Fix python PMDA wrapper handling of list objects
+- Improve tmpfiles.d handling of empty directories
+- Backport some more fixes to the OpenMetrics PMDA
+- Fix a multilib regression in PCP header files
+
+* Wed Apr 30 2025 Lauren Chilton <lchilton@redhat.com> - 6.3.7-4
+- Backport metric removal for pmdaopenmetrics
+
+* Tue Apr 22 2025 William Cohen <wcohen@redhat.com> - 6.3.7-3
+- Backport the webapi filtering fix to allow the use of exact matching. (RHEL-88201)
+
+* Tue Apr 15 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-2
+- Add selinux policy for new proc_psi_t-induced failure
+
 * Mon Mar 31 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-1
-- Sync bug fixes and selinux policy from RHEL 9.6.z (RHEL-85458)
+- Update to latest stable version of PCP (RHEL-83468)
 
 * Fri Jan 31 2025 Nathan Scott <nathans@redhat.com> - 6.3.2-5
 - Fix writing of v3 archive timestamps on s390x (RHEL-69722)
