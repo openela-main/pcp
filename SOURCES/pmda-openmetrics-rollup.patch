@@ -1,6 +1,6 @@
 diff -Naurp pcp-6.3.7.orig/qa/1976 pcp-6.3.7/qa/1976
---- pcp-6.3.7.orig/qa/1976	1970-01-01 10:00:00.000000000 +1000
-+++ pcp-6.3.7/qa/1976	2025-06-26 18:02:39.313416612 +1000
+--- pcp-6.3.7.orig/qa/1976	1969-12-31 19:00:00.000000000 -0500
++++ pcp-6.3.7/qa/1976	2025-10-14 09:47:42.874408447 -0400
 @@ -0,0 +1,85 @@
 +#!/bin/sh
 +# PCP QA Test No. 1976
@@ -88,8 +88,8 @@ diff -Naurp pcp-6.3.7.orig/qa/1976 pcp-6.3.7/qa/1976
 +status=0
 +exit
 diff -Naurp pcp-6.3.7.orig/qa/1976.out pcp-6.3.7/qa/1976.out
---- pcp-6.3.7.orig/qa/1976.out	1970-01-01 10:00:00.000000000 +1000
-+++ pcp-6.3.7/qa/1976.out	2025-06-26 18:02:01.879861640 +1000
+--- pcp-6.3.7.orig/qa/1976.out	1969-12-31 19:00:00.000000000 -0500
++++ pcp-6.3.7/qa/1976.out	2025-10-14 09:47:42.874575552 -0400
 @@ -0,0 +1,17 @@
 +QA output created by 1976
 +
@@ -109,8 +109,8 @@ diff -Naurp pcp-6.3.7.orig/qa/1976.out pcp-6.3.7/qa/1976.out
 +openmetrics.simple_metric.metric1
 +
 diff -Naurp pcp-6.3.7.orig/qa/group pcp-6.3.7/qa/group
---- pcp-6.3.7.orig/qa/group	2025-06-26 17:55:37.790462638 +1000
-+++ pcp-6.3.7/qa/group	2025-06-26 17:58:18.996389423 +1000
+--- pcp-6.3.7.orig/qa/group	2025-03-30 21:41:26.000000000 -0400
++++ pcp-6.3.7/qa/group	2025-10-14 09:47:42.874918504 -0400
 @@ -2205,6 +2205,7 @@ pmcd.pdu
  1963 pmda.linux local
  1970 pmda.bpf local
@@ -120,8 +120,8 @@ diff -Naurp pcp-6.3.7.orig/qa/group pcp-6.3.7/qa/group
  1984 pmlogconf pmda.redis local
  1985 pmfind local valgrind
 diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl/script.sh pcp-6.3.7/qa/openmetrics/scripts/curl/script.sh
---- pcp-6.3.7.orig/qa/openmetrics/scripts/curl/script.sh	2023-11-16 17:51:39.000000000 +1100
-+++ pcp-6.3.7/qa/openmetrics/scripts/curl/script.sh	2025-06-26 18:02:50.155355973 +1000
+--- pcp-6.3.7.orig/qa/openmetrics/scripts/curl/script.sh	2023-11-16 01:51:39.000000000 -0500
++++ pcp-6.3.7/qa/openmetrics/scripts/curl/script.sh	2025-10-14 09:47:42.875376079 -0400
 @@ -1,4 +1,4 @@
  #! /bin/sh
  
@@ -129,8 +129,8 @@ diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl/script.sh pcp-6.3.7/qa/op
 -curl -Gq file://$PCP_PMDAS_DIR/openmetrics/config.d/some_metric.txt
 +curl -Gqs file://$PCP_PMDAS_DIR/openmetrics/config.d/some_metric.txt
 diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_filtered.sh pcp-6.3.7/qa/openmetrics/scripts/curl_filtered.sh
---- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_filtered.sh	2023-11-16 17:51:39.000000000 +1100
-+++ pcp-6.3.7/qa/openmetrics/scripts/curl_filtered.sh	2025-06-26 18:02:50.155694515 +1000
+--- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_filtered.sh	2023-11-16 01:51:39.000000000 -0500
++++ pcp-6.3.7/qa/openmetrics/scripts/curl_filtered.sh	2025-10-14 09:47:42.875590832 -0400
 @@ -7,6 +7,6 @@
  
  . /etc/pcp.conf
@@ -141,8 +141,8 @@ diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_filtered.sh pcp-6.3.7/qa/
 +curl -Gqs file://$PCP_PMDAS_DIR/openmetrics/config.d/some_other_metric.txt) \
  | sed -e '/metric2/d'
 diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_hostname_label.sh pcp-6.3.7/qa/openmetrics/scripts/curl_hostname_label.sh
---- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_hostname_label.sh	2023-11-16 17:51:39.000000000 +1100
-+++ pcp-6.3.7/qa/openmetrics/scripts/curl_hostname_label.sh	2025-06-26 18:02:50.155942641 +1000
+--- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_hostname_label.sh	2023-11-16 01:51:39.000000000 -0500
++++ pcp-6.3.7/qa/openmetrics/scripts/curl_hostname_label.sh	2025-10-14 09:47:42.875772077 -0400
 @@ -12,5 +12,5 @@
  
  # here for QA purposes we're fetching from a local file
@@ -151,8 +151,8 @@ diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_hostname_label.sh pcp-6.3
 +curl -Gqs file://$PCP_PMDAS_DIR/openmetrics/config.d/some_metric.txt 2>/dev/null | \
  sed -e 's/[a-z0-9]*=/hostname="remotehost",&/'
 diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_scripted.sh pcp-6.3.7/qa/openmetrics/scripts/curl_scripted.sh
---- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_scripted.sh	2023-11-16 17:51:39.000000000 +1100
-+++ pcp-6.3.7/qa/openmetrics/scripts/curl_scripted.sh	2025-06-26 18:02:50.156229975 +1000
+--- pcp-6.3.7.orig/qa/openmetrics/scripts/curl_scripted.sh	2023-11-16 01:51:39.000000000 -0500
++++ pcp-6.3.7/qa/openmetrics/scripts/curl_scripted.sh	2025-10-14 09:47:42.875946730 -0400
 @@ -1,5 +1,5 @@
  #! /bin/sh
  
@@ -162,19 +162,18 @@ diff -Naurp pcp-6.3.7.orig/qa/openmetrics/scripts/curl_scripted.sh pcp-6.3.7/qa/
 +curl -Gqs file://$PCP_PMDAS_DIR/openmetrics/config.d/some_metric.txt
 +curl -Gqs file://$PCP_PMDAS_DIR/openmetrics/config.d/some_other_metric.txt
 diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.7/src/pmdas/openmetrics/pmdaopenmetrics.python
---- pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python	2025-06-26 17:55:37.790973098 +1000
-+++ pcp-6.3.7/src/pmdas/openmetrics/pmdaopenmetrics.python	2025-06-26 18:02:26.571388227 +1000
-@@ -32,7 +32,8 @@ import subprocess
+--- pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python	2025-03-27 02:01:59.000000000 -0400
++++ pcp-6.3.7/src/pmdas/openmetrics/pmdaopenmetrics.python	2025-10-14 09:51:21.874137509 -0400
+@@ -32,7 +32,7 @@ import subprocess
  import sys
  from ctypes import c_int
  from socket import gethostname
 -from stat import ST_MODE, S_IXUSR, ST_CTIME
-+from urllib.parse import urlparse
 +from stat import ST_MODE, S_IXUSR
  import requests
  
  from pcp.pmapi import pmUnits, pmContext
-@@ -127,15 +128,9 @@ class Metric(object):
+@@ -127,15 +127,9 @@ class Metric(object):
              (name, pmContext.pmIDStr(self.pmid), self.mtype, self.msem, self.singular, self.mindom, self.labels))
  
          self.obj = pmdaMetric(self.pmid, self.mtype, self.mindom, self.msem, self.munits)
@@ -192,7 +191,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
  
          try:
              self.source.pmda.add_metric(self.mname, self.obj, help_oneline, help_text)
-@@ -565,7 +560,7 @@ class Source(object):
+@@ -565,7 +559,7 @@ class Source(object):
          self.path = path # pathname to .url or executable file
          self.url = None
          self.parse_error = False
@@ -201,7 +200,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
          self.is_scripted = is_scripted
          self.pmda = thispmda # the shared pmda
          self.requests = None
-@@ -588,6 +583,16 @@ class Source(object):
+@@ -588,6 +582,16 @@ class Source(object):
          self.metrics_by_name = {} # name -> Metric
          self.metrics_by_num = {} # number (last component of pmid) -> Metric
  
@@ -218,7 +217,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
  
      def old_enough_for_refresh(self):
          '''But what is "old"?  If it is empty (no metrics), then it
-@@ -685,6 +690,23 @@ class Source(object):
+@@ -685,6 +689,23 @@ class Source(object):
              self.pmda.debug("included_labels '%s'" % (included_labels)) if self.pmda.dbg else None
              self.pmda.debug("optional_labels '%s'" % (optional_labels)) if self.pmda.dbg else None
              if sp.name in self.metrics_by_name:
@@ -242,7 +241,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
                  m = self.metrics_by_name[sp.name]
                  assert self.metrics_by_num[m.metricnum] == m
                  if m.singular:
-@@ -693,6 +715,7 @@ class Source(object):
+@@ -693,6 +714,7 @@ class Source(object):
                  else:
                      m.store_inst(naming_labels, sp.value)
                      self.pmda.debug("naming_labels '%s'" % (naming_labels)) if self.pmda.dbg else None
@@ -250,7 +249,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
              else:
                  # check metric is not excluded by filters
                  fullname = "openmetrics.%s.%s" % (self.name, sp.name)
-@@ -800,9 +823,9 @@ class Source(object):
+@@ -800,9 +822,9 @@ class Source(object):
  
          return num_metrics
  
@@ -262,7 +261,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
          Remaining lines are prefixed with a keyword. Supported keywords
          include '#' for a comment, 'HEADER:' to add to the header passed
          to the headers dict parameter to the get() call. Note the ':' are
-@@ -900,12 +923,12 @@ class Source(object):
+@@ -900,12 +922,12 @@ class Source(object):
                  if not s[ST_MODE] & S_IXUSR:
                      self.pmda.err("cannot execute script '%s'" % self.path)
                      return
@@ -279,7 +278,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
              return
  
          # fetch the document
-@@ -1001,7 +1024,7 @@ class OpenMetricsPMDA(PMDA):
+@@ -1001,7 +1023,7 @@ class OpenMetricsPMDA(PMDA):
          # now everything else may take time
          self.pmda_name = pmda_name
          self.config_dir = os.path.normpath(config)
@@ -288,7 +287,7 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
          self.timeout = timeout
  
          # a single central Session that all our sources can concurrently reuse
-@@ -1014,6 +1037,11 @@ class OpenMetricsPMDA(PMDA):
+@@ -1014,6 +1036,10 @@ class OpenMetricsPMDA(PMDA):
          reserved_cluster = self.cluster_table.intern_lookup_value("control")
          assert reserved_cluster == 0
          self.source_by_cluster = {}
@@ -296,11 +295,21 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
 +        self.all_metrics = {}
 +        # keep track of removed metrics, in case of re-addition
 +        self.removed_metrics = {}
-+        self.controls = {0:0}
  
          # compiled regex cache
          self.regex_cache = {}
-@@ -1106,26 +1134,53 @@ class OpenMetricsPMDA(PMDA):
+@@ -1053,7 +1079,9 @@ class OpenMetricsPMDA(PMDA):
+         self.add_metric('%s.control.debug' % self.pmda_name, pmdaMetric(self.pmid(0, 4),
+             c_api.PM_TYPE_U32, c_api.PM_INDOM_NULL, c_api.PM_SEM_DISCRETE,
+             pmUnits(0, 0, 0, 0, 0, 0)),
+-            'debug flag to enable verbose log messages, to enable: pmstore %s.control.debug 1' % self.pmda_name)
++            'debug flag to enable verbose log messages',
++            'Debugging flag to enable verbose log messages, to enable:\n'
++            '> pmstore %s.control.debug 1' % self.pmda_name)
+ 
+         # response status string, per-source end-point
+         self.stats_status = {0:"none"} # status string, keyed by cluster number
+@@ -1106,26 +1134,26 @@ class OpenMetricsPMDA(PMDA):
              assert s == self.source_by_name[s.name]
  
  
@@ -326,14 +335,6 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
 +                    if mtime is None or m > mtime:
 +                        mtime = m
                      ret.append(fname)
-+                fname = os.path.join(path, f)
-+                with open(fname, 'r') as name:
-+                    f_path = name.readline().strip()
-+                    if f_path.startswith("file:///"):
-+                        parsed = urlparse(f_path)
-+                        m = os.path.getmtime(parsed.path)
-+                        if mtime is None or m > mtime:
-+                            mtime = m
              for d in subdirs:
 -                m, _ = self.traverse(os.path.join(path, d), ctime)
 -                if ctime is None or m > ctime:
@@ -343,29 +344,10 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
 +                if mtime is None or m > mtime:
 +                    mtime = m
 +        return mtime, ret
-+
-+    def initialize_controls(self, cluster):
-+        # initialize statistics
-+        self.stats_fetch_calls[cluster] = 0
-+        self.stats_fetch_time[cluster] = 0
-+        self.stats_parse_time[cluster] = 0
-+        self.stats_status[cluster] = "unknown"
-+        self.stats_status_code[cluster] = 0
-+
-+        self.controls[cluster] = 1
-+
-+    def delete_controls(self, cluster):
-+        del self.stats_fetch_calls[cluster]
-+        del self.stats_fetch_time[cluster]
-+        del self.stats_parse_time[cluster]
-+        del self.stats_status[cluster]
-+        del self.stats_status_code[cluster]
-+
-+        self.controls[cluster] = 0
  
      def rescan_confdir(self):
          '''Scan the configuration directories for any new .url files
-@@ -1138,19 +1193,56 @@ class OpenMetricsPMDA(PMDA):
+@@ -1138,18 +1166,50 @@ class OpenMetricsPMDA(PMDA):
          '''
  
          traverse_time = time.time()
@@ -405,9 +387,6 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
 +            try:
 +                remove_name = key
 +                remove_obj = value
-+                cluster = self.cluster_table.intern_lookup_value(split_name[1])
-+                if self.controls[cluster] == 1:
-+                    self.delete_controls(cluster)
 +                self.remove_metric(remove_name, remove_obj)
 +                self.removed_metrics[remove_name] = remove_obj
 +                self.debug("removed metric name: %s" % remove_name) if self.dbg else None
@@ -421,45 +400,22 @@ diff -Naurp pcp-6.3.7.orig/src/pmdas/openmetrics/pmdaopenmetrics.python pcp-6.3.
  
 -        # TODO: maybe nuke sources related to removed files
          save_cluster_table = False
-+        cluster_for_refresh_names = []
-+        cluster_for_refresh = []
          if sort_conf_list:
              # sorted for indom cluster consistency
-             conf_filelist = sorted(conf_filelist)
-@@ -1177,6 +1269,13 @@ class OpenMetricsPMDA(PMDA):
+@@ -1177,6 +1237,16 @@ class OpenMetricsPMDA(PMDA):
              if name in self.source_by_name:
                  # this source is already known
                  self.assert_source_invariants(name=name)
 +                s = self.source_by_name[name]
-+                for key, value in self.source_by_cluster.items():
-+                    if value == s:
-+                        cluster_for_refresh.append(key)
-+                        cluster_for_refresh_names.append(name)
-+                    if name in self.re_add_list:
-+                        self.initialize_controls(key)
++                cluster_for_refresh = []
++                cluster_for_refresh_names = []
++                if name in self.re_add_list:
++                    for key,value in self.source_by_cluster.items():
++                        if value == s:
++                            cluster_for_refresh.append(key)
++                            cluster_for_refresh_names.append(name)
++                    self.debug("refreshing cluster list: %s" % cluster_for_refresh_names) if self.dbg else None
++                    self.refresh_some_clusters_for_fetch(cluster_for_refresh)
              else:
                  try:
                      path = file
-@@ -1185,17 +1284,16 @@ class OpenMetricsPMDA(PMDA):
-                     self.source_by_name[source.name] = source
-                     self.source_by_cluster[source.cluster] = source
- 
--                    # initialize statistics
--                    self.stats_fetch_calls[cluster] = 0
--                    self.stats_fetch_time[cluster] = 0
--                    self.stats_parse_time[cluster] = 0
--                    self.stats_status[cluster] = "unknown"
--                    self.stats_status_code[cluster] = 0
-+                    self.initialize_controls(cluster)
- 
-                     save_cluster_table = True
-                     self.log("Found source %s cluster %d" % (name, cluster))
-                 except Exception as e:
-                     self.err("Error allocating new cluster/source %s (%s)" % (name, e))
-+
-+            self.debug("refreshing cluster list: %s" % cluster_for_refresh_names) if self.dbg else None
-+            self.refresh_some_clusters_for_fetch(cluster_for_refresh)
-+
-         if save_cluster_table:
-             self.cluster_table.save()
-             self.set_notify_change()

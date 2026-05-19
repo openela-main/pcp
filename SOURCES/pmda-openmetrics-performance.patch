@@ -1,0 +1,28 @@
+commit c671c1269fdf7d1832b72ec22394c2c5957d7fee
+Merge: 7b4f81bb70 db214c8409
+Author: Nathan Scott <nathans@redhat.com>
+Date:   Sat Nov 8 10:42:55 2025 +1100
+
+    Merge branch 'rhel-124769' of github.com:lmchilton/pcp into lmchilton-rhel-124769
+
+diff --git a/src/pmdas/openmetrics/pmdaopenmetrics.python b/src/pmdas/openmetrics/pmdaopenmetrics.python
+index 352f6565f2..927ab0cd94 100755
+--- a/src/pmdas/openmetrics/pmdaopenmetrics.python
++++ b/src/pmdas/openmetrics/pmdaopenmetrics.python
+@@ -565,6 +565,7 @@ class Source(object):
+         self.document = None
+ 
+         self.refresh_time = 0 # "never"
++
+         if not is_scripted:
+             # source is a URL.  Create a session for it and initialize a few things
+             self.requests = self.pmda.requests # allow persistent connections etc.
+@@ -601,7 +602,7 @@ class Source(object):
+         '''
+         now = time.time()
+         last_try_age = now - self.refresh_time
+-        return len(self.metrics_by_name) == 0 or last_try_age > self.pmda.refresh_timeout
++        return last_try_age > self.pmda.refresh_timeout
+ 
+     def check_filter(self, name, entrytype):
+         '''

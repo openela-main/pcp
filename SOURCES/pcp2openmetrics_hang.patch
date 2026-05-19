@@ -1,0 +1,42 @@
+commit 50967b7d1ca7c6f1d440236e6faadd1e768e75b1
+Author: lmchilton <lauren.chilton26@gmail.com>
+Date:   Wed Jul 30 12:48:18 2025 -0400
+
+    pcp2openmetrics tool causing hanging
+    
+    bug found that caused tool to hang
+    failing to output more than one metric.
+    Changing the placement of setting the
+    timezone to UTC fixed the issue. Setting
+    the timezone at the top of the program
+    before command line processing & setting
+    defaults is a possible explanation for the
+    issue.
+
+diff --git a/src/pcp2openmetrics/pcp2openmetrics.py b/src/pcp2openmetrics/pcp2openmetrics.py
+index 8d8b62066..a228aaf34 100755
+--- a/src/pcp2openmetrics/pcp2openmetrics.py
++++ b/src/pcp2openmetrics/pcp2openmetrics.py
+@@ -39,11 +39,14 @@ CONFVER = 1
+ INDENT = 2
+ TIMEFMT = "%Y-%m-%d %H:%M:%S"
+ TIMEOUT = 2.5 # seconds
++os.environ["TZ"] = "UTC"
++time.tzset()
+ 
+ class PCP2OPENMETRICS(object):
+     """ PCP to OPENMETRICS """
+     def __init__(self):
+         """ Construct object, prepare for command line handling """
++
+         self.context = None
+         self.daemonize = 0
+         self.pmconfig = pmconfig.pmConfig(self)
+@@ -390,7 +393,6 @@ class PCP2OPENMETRICS(object):
+             # Silent goodbye, close in finalize()
+             return
+ 
+-        self.context.pmNewZone("UTC")
+         ts = self.context.datetime_to_secs(self.pmfg_ts(), PM_TIME_SEC)
+ 
+         if self.prev_ts is None:

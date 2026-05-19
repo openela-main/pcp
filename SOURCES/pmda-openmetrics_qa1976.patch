@@ -1,0 +1,24 @@
+commit 401a5d5d87754af00a1c3f38c036042fb4f50d63
+Author: Nathan Scott <nathans@redhat.com>
+Date:   Mon Aug 11 12:44:06 2025 +1000
+
+    qa: simply my previous additional case within test qa/1976
+
+diff --git a/qa/1976 b/qa/1976
+index 54a219e36..9700d9934 100755
+--- a/qa/1976
++++ b/qa/1976
+@@ -71,10 +71,9 @@ pminfo openmetrics.simple_metric
+ echo
+ 
+ echo "-- source re-addition with epoch timestamp --"
+-txtpath=$here/openmetrics/samples/simple_metric.txt
+-urlfile=$PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
+-echo 'file:///'$txtpath > $urlfile
+-$sudo touch -t 197001010000 $urlfile
++cp $here/openmetrics/samples/simple_metric.txt $tmp.simple_metric.txt
++echo 'file:///'$tmp.simple_metric.txt > $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
++$sudo touch -t 197001010000 $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
+ pminfo openmetrics.simple_metric
+ echo
+ 

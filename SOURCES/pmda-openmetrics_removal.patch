@@ -1,0 +1,414 @@
+commit 137de0c80681723845b880cea42d4ce7d9f0007e
+Author: lmchilton <lauren.chilton26@gmail.com>
+Date:   Fri Sep 19 15:40:45 2025 -0400
+
+    pmdaopenmetrics: update metric removal mechanism
+    
+    update metric removal mechanism to remove metrics
+    deleted from existing sources. New mechanism first
+    marks all metrics as true (to be removed) then as
+    metrics are seen they are marked as false (do not
+    remove). At the end of the refresh any existing
+    metrics marked true are removed. Added code for
+    control initialization and removal. All QA in
+    pmda.openmetrics group is passing. Edited
+    function old_enough_for_refresh() to allow
+    refreshs. In the previous state:
+    len(self.metrics_by_name) is never 0 after
+    the first pass, so the function would
+    always return False.
+
+diff --git a/qa/1976 b/qa/1976
+index 9700d9934..88405387a 100755
+--- a/qa/1976
++++ b/qa/1976
+@@ -2,7 +2,7 @@
+ # PCP QA Test No. 1976
+ # Test pmdaopenmetrics metric removal
+ #
+-# Copyright (c) 2017, 2025 Red Hat.  All Rights Reserved.
++# Copyright (c) 2025 Red Hat.  All Rights Reserved.
+ #
+ seq=`basename $0`
+ echo "QA output created by $seq"
+@@ -45,6 +45,15 @@ find $PCP_PMDAS_DIR/openmetrics/config.d -name GNU\* -exec rm -f {} ";"
+ 
+ _pmdaopenmetrics_install
+ 
++iam=openmetrics
++# append -R option to pmcd config
++sed < $PCP_PMCDCONF_PATH \
++        -e "/^$iam.*/s/$/ -R 1/" \
++        > $tmp.conf
++$sudo cp $tmp.conf $PCP_PMCDCONF_PATH
++$sudo systemctl restart pmcd
++sleep 2
++
+ if ! _pmdaopenmetrics_wait_for_metric openmetrics.thermostat
+ then
+     status=1
+@@ -56,15 +65,23 @@ $sudo rm $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
+ pminfo openmetrics.simple_metric
+ echo
+ 
++echo "-- check control metrics disappeared --"
++pminfo -dfmt openmetrics.control.status_code
++echo
++
+ echo "-- source re-addition --"
+ # same access controls logic as above, user $PCP_USER needs to be
+ # able to read the file at the end of the URL
+ #
+ cp $here/openmetrics/samples/simple_metric.txt $tmp.simple_metric.txt
+-echo 'file:///'$tmp.simple_metric.txt >$PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
++echo 'file:///'$tmp.simple_metric.txt > $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
+ pminfo openmetrics.simple_metric
+ echo
+ 
++echo "-- check control metrics reappeared --"
++pminfo -dfmt openmetrics.control.status_code
++echo
++
+ echo "-- metric removal of recognized source/metric --"
+ $sudo rm $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.url
+ pminfo openmetrics.simple_metric
+@@ -77,6 +94,16 @@ $sudo touch -t 197001010000 $PCP_PMDAS_DIR/openmetrics/config.d/simple_metric.ur
+ pminfo openmetrics.simple_metric
+ echo
+ 
++echo "-- metric removal by modifying source file, source persists --"
++$sudo sed -i -e "/metric2/d" $tmp'.simple_metric.txt'
++
++echo "-- sleep to allow for old_enough_for_refresh() --"
++sleep 2
++echo
++
++echo "-- metric2 removed --"
++pminfo openmetrics.simple_metric
++
+ _pmdaopenmetrics_remove >/dev/null 2>&1
+ 
+ # success, all done
+diff --git a/qa/1976.out b/qa/1976.out
+index e72b1984c..a0dd60721 100644
+--- a/qa/1976.out
++++ b/qa/1976.out
+@@ -4,10 +4,85 @@ QA output created by 1976
+ -- metric removal of new source/metric --
+ Error: openmetrics.simple_metric: Unknown metric name
+ 
++-- check control metrics disappeared --
++
++openmetrics.control.status_code PMID: 144.0.6 [per-end-point source URL response status code after the most recent fetch]
++    Data Type: 32-bit int  InDom: 144.0 0x24000000
++    Semantics: discrete  Units: none
++    inst [0 or "control"] value 0
++    inst [1 or "awk_scripted"] value 0
++    inst [2 or "bad_summary_nometa"] value 0
++    inst [3 or "collectd_sample"] value 0
++    inst [4 or "curl.script"] value 0
++    inst [5 or "curl_filtered"] value 0
++    inst [6 or "curl_hostname_label"] value 0
++    inst [7 or "curl_scripted"] value 0
++    inst [8 or "duplicate_hostname_label"] value 0
++    inst [9 or "good_summary_nometa"] value 0
++    inst [10 or "jenkins_monitoring_javamelody"] value 0
++    inst [11 or "jenkins_prometheus_plugin"] value 0
++    inst [12 or "labelfiltering"] value 0
++    inst [13 or "multiple.namespace.levels"] value 0
++    inst [14 or "multiple.namespace.more"] value 0
++    inst [15 or "pmwebd_3_12_2"] value 0
++    inst [16 or "problematic_strings"] value 0
++    inst [17 or "prom_exposition_formats_example1"] value 0
++    inst [18 or "python_sample_client_server"] value 0
++    inst [19 or "python_scripted"] value 0
++    inst [20 or "reordered_labels"] value 0
++    inst [21 or "sample_pmda_3_12_2"] value 0
++    inst [22 or "sample_pmda_instname_5_0_0"] value 0
++    inst [23 or "sample_pmda_pcp5_metadata"] value 0
++    inst [24 or "sample_prometheus_metrics"] value 0
++    inst [25 or "script_failed"] value 0
++    inst [26 or "sh_script_no_suffix"] value 0
++    inst [27 or "sh_scripted"] value 0
++    inst [29 or "stderr_check"] value 0
++    inst [30 or "thermostat"] value 0
++    inst [31 or "vmware_exporter"] value 0
++
+ -- source re-addition --
+ openmetrics.simple_metric.metric2
+ openmetrics.simple_metric.metric1
+ 
++-- check control metrics reappeared --
++
++openmetrics.control.status_code PMID: 144.0.6 [per-end-point source URL response status code after the most recent fetch]
++    Data Type: 32-bit int  InDom: 144.0 0x24000000
++    Semantics: discrete  Units: none
++    inst [0 or "control"] value 0
++    inst [1 or "awk_scripted"] value 0
++    inst [2 or "bad_summary_nometa"] value 0
++    inst [3 or "collectd_sample"] value 0
++    inst [4 or "curl.script"] value 0
++    inst [5 or "curl_filtered"] value 0
++    inst [6 or "curl_hostname_label"] value 0
++    inst [7 or "curl_scripted"] value 0
++    inst [8 or "duplicate_hostname_label"] value 0
++    inst [9 or "good_summary_nometa"] value 0
++    inst [10 or "jenkins_monitoring_javamelody"] value 0
++    inst [11 or "jenkins_prometheus_plugin"] value 0
++    inst [12 or "labelfiltering"] value 0
++    inst [13 or "multiple.namespace.levels"] value 0
++    inst [14 or "multiple.namespace.more"] value 0
++    inst [15 or "pmwebd_3_12_2"] value 0
++    inst [16 or "problematic_strings"] value 0
++    inst [17 or "prom_exposition_formats_example1"] value 0
++    inst [18 or "python_sample_client_server"] value 0
++    inst [19 or "python_scripted"] value 0
++    inst [20 or "reordered_labels"] value 0
++    inst [21 or "sample_pmda_3_12_2"] value 0
++    inst [22 or "sample_pmda_instname_5_0_0"] value 0
++    inst [23 or "sample_pmda_pcp5_metadata"] value 0
++    inst [24 or "sample_prometheus_metrics"] value 0
++    inst [25 or "script_failed"] value 0
++    inst [26 or "sh_script_no_suffix"] value 0
++    inst [27 or "sh_scripted"] value 0
++    inst [28 or "simple_metric"] value 0
++    inst [29 or "stderr_check"] value 0
++    inst [30 or "thermostat"] value 0
++    inst [31 or "vmware_exporter"] value 0
++
+ -- metric removal of recognized source/metric --
+ Error: openmetrics.simple_metric: Unknown metric name
+ 
+@@ -15,3 +90,8 @@ Error: openmetrics.simple_metric: Unknown metric name
+ openmetrics.simple_metric.metric2
+ openmetrics.simple_metric.metric1
+ 
++-- metric removal by modifying source file, source persists --
++-- sleep to allow for old_enough_for_refresh() --
++
++-- metric2 removed --
++openmetrics.simple_metric.metric1
+diff --git a/src/pmdas/openmetrics/pmdaopenmetrics.1 b/src/pmdas/openmetrics/pmdaopenmetrics.1
+index 29370d1cb..e696b2f70 100644
+--- a/src/pmdas/openmetrics/pmdaopenmetrics.1
++++ b/src/pmdas/openmetrics/pmdaopenmetrics.1
+@@ -2,6 +2,7 @@
+ .\"
+ .\" Copyright (c) 2017-2019 Red Hat.
+ .\" Copyright (c) 2017 Ronak Jain.
++.\" Copyright (c) 2025 Lauren Chilton.
+ .\"
+ .\" This program is free software; you can redistribute it and/or modify it
+ .\" under the terms of the GNU General Public License as published by the
+@@ -25,6 +26,7 @@
+ [\f3\-c\f1 \f2config\f1]
+ [\f3\-d\f1 \f2domain\f1]
+ [\f3\-l\f1 \f2logfile\f1]
++[\f3\-R\f1 \f2refresh_timeout\f1]
+ [\f3\-r\f1 \f2root\f1]
+ [\f3\-t\f1 \f2timeout\f1]
+ [\f3\-u\f1 \f2user\f1]
+@@ -138,6 +140,13 @@ Use of the
+ .B \-r
+ option may also change the defaults for some other command line options,
+ e.g. the default log file name and the default configuration directory.
++.PP
++The
++.B \-R
++option allows the user to configure the \fItimeout\fR,
++in seconds, between cluster refreshes. The default value is
++.B 10
++seconds.
+ .SH "CONFIGURATION SOURCES"
+ As it runs,
+ .B pmdaopenmetrics
+diff --git a/src/pmdas/openmetrics/pmdaopenmetrics.python b/src/pmdas/openmetrics/pmdaopenmetrics.python
+index 383c7c899..352f6565f 100755
+--- a/src/pmdas/openmetrics/pmdaopenmetrics.python
++++ b/src/pmdas/openmetrics/pmdaopenmetrics.python
+@@ -51,10 +51,6 @@ else:
+ # and/or scripts.  See the --nosort option to turn it off.
+ sort_conf_list = True
+ 
+-# Number of seconds to wait between poll attempts on a source that
+-# we've never been able to connect to & collect a list of metrics from.
+-empty_source_pmns_poll = 10.0
+-
+ MAX_CLUSTER = 0xfff    # ~ max. number of openmetrics sources
+ MAX_METRIC = 0x3ff     # ~ max. number of metrics per source
+ MAX_INDOM = 0x7fffffff # coincidentally, ~ product of above
+@@ -581,6 +577,8 @@ class Source(object):
+ 
+         self.metrics_by_name = {} # name -> Metric
+         self.metrics_by_num = {} # number (last component of pmid) -> Metric
++        self.metric_removal_flags = {}
++        self.metric_fullnames = {}
+ 
+     def helptext(self, helpline):
+         if helpline: # it could be None!
+@@ -603,7 +601,7 @@ class Source(object):
+         '''
+         now = time.time()
+         last_try_age = now - self.refresh_time
+-        return len(self.metrics_by_name) == 0 and last_try_age > empty_source_pmns_poll
++        return len(self.metrics_by_name) == 0 or last_try_age > self.pmda.refresh_timeout
+ 
+     def check_filter(self, name, entrytype):
+         '''
+@@ -689,13 +687,15 @@ class Source(object):
+             self.pmda.debug("included_labels '%s'" % (included_labels)) if self.pmda.dbg else None
+             self.pmda.debug("optional_labels '%s'" % (optional_labels)) if self.pmda.dbg else None
+             if sp.name in self.metrics_by_name:
+-                if ("openmetrics.%s.%s" % (self.name, sp.name)) not in self.pmda.all_metrics and self.name in self.pmda.re_add_list:
++                self.metric_removal_flags[sp.name] = False
++                if pcpline:
++                    split = pcpline.split(" ")
++                    fullname = "openmetrics.%s.%s" % (self.name, split[1])
++                else:
++                    fullname = "openmetrics.%s.%s" % (self.name, sp.name.replace(":", "."))
++                self.metric_fullnames[sp.name] = fullname
++                if ("openmetrics.%s.%s" % (self.name, sp.name)) not in self.pmda.all_metrics:
+                     # re-add metric to namespace
+-                    if pcpline:
+-                        split = pcpline.split(" ")
+-                        fullname = "openmetrics.%s.%s" % (self.name, split[1])
+-                    else:
+-                        fullname = "openmetrics.%s.%s" % (self.name, sp.name.replace(":", "."))
+                     help_oneline, help_text = self.helptext(helpline)
+                     try:
+                         obj = self.pmda.removed_metrics[fullname]
+@@ -967,6 +967,9 @@ class Source(object):
+         if self.document is None: # error during fetch?
+             return
+ 
++        for metric in self.metrics_by_name:
++            self.metric_removal_flags[metric] = True
++
+         # parse and handle the openmetrics formatted metric data
+         parse_time = time.time()
+         s = self.parse_lines(self.document)
+@@ -976,6 +979,19 @@ class Source(object):
+         self.pmda.stats_parse_time[self.cluster] += incr
+         self.pmda.stats_parse_time[0] += incr # total
+ 
++        for metric, value in self.metric_removal_flags.items():
++            remove_name = self.metric_fullnames[metric]
++            if value is True and remove_name in self.pmda.all_metrics:
++                self.pmda.debug("removing metric from existing source: %s" % metric) if self.pmda.dbg else None
++                try:
++                    remove_object = self.pmda.all_metrics[remove_name]
++                    self.pmda.remove_metric(remove_name, remove_object)
++                    self.pmda.set_need_refresh()
++                    del self.pmda.all_metrics[remove_name]
++                    self.pmda.removed_metrics[remove_name] = remove_object
++                except Exception as e:
++                    self.pmda.debug("cannot remove metric from existing source, see error: %s" % e) if self.pmda.dbg else None
++
+         # save metric & indom lookup tables changes, if any
+         for _, m in self.metrics_by_name.items():
+             try: # NB: must process whole list even if exceptions escape
+@@ -1000,7 +1016,7 @@ class Source(object):
+             return [c_api.PM_ERR_AGAIN, 0]
+ 
+ class OpenMetricsPMDA(PMDA):
+-    def __init__(self, pmda_name, domain, config, timeout, user, debugflag, logfile):
++    def __init__(self, pmda_name, domain, config, timeout, refresh_timeout, user, debugflag, logfile):
+         '''
+         Initialize the PMDA. This can take a while for large configurations.
+         The openmetrics entry in pmcd.conf specifies to start up in "notready"
+@@ -1020,6 +1036,9 @@ class OpenMetricsPMDA(PMDA):
+         # and the storable metric $(pmda_name).control.debug
+         self.dbg = debugflag
+ 
++        # Number of seconds to wait between poll attempts on a source
++        self.refresh_timeout = refresh_timeout
++
+         # now everything else may take time
+         self.pmda_name = pmda_name
+         self.config_dir = os.path.normpath(config)
+@@ -1040,6 +1059,7 @@ class OpenMetricsPMDA(PMDA):
+         self.all_metrics = {}
+         # keep track of removed metrics, in case of re-addition
+         self.removed_metrics = {}
++        self.controls = {0:0}
+ 
+         # compiled regex cache
+         self.regex_cache = {}
+@@ -1155,6 +1175,24 @@ class OpenMetricsPMDA(PMDA):
+                     mtime = m
+         return mtime, ret
+ 
++    def initialize_controls(self, cluster):
++        self.stats_fetch_calls[cluster] = 0
++        self.stats_fetch_time[cluster] = 0
++        self.stats_parse_time[cluster] = 0
++        self.stats_status[cluster] = "unknown"
++        self.stats_status_code[cluster] = 0
++
++        self.controls[cluster] = 1
++
++    def delete_controls(self, cluster):
++        del self.stats_fetch_calls[cluster]
++        del self.stats_fetch_time[cluster]
++        del self.stats_parse_time[cluster]
++        del self.stats_status[cluster]
++        del self.stats_status_code[cluster]
++
++        self.controls[cluster] = 0
++
+     def rescan_confdir(self):
+         '''Scan the configuration directories for any new .url files
+         or scripts.  Ensure there is a Source registered in the
+@@ -1199,6 +1237,9 @@ class OpenMetricsPMDA(PMDA):
+             try:
+                 remove_name = key
+                 remove_obj = value
++                cluster = self.cluster_table.intern_lookup_value(split_name[1])
++                if self.controls[cluster] == 1:
++                    self.delete_controls(cluster)
+                 self.remove_metric(remove_name, remove_obj)
+                 self.removed_metrics[remove_name] = remove_obj
+                 self.debug("removed metric name: %s" % remove_name) if self.dbg else None
+@@ -1245,6 +1286,8 @@ class OpenMetricsPMDA(PMDA):
+                         if value == s:
+                             cluster_for_refresh.append(key)
+                             cluster_for_refresh_names.append(name)
++                            if self.controls[key] == 0:
++                                self.initialize_controls(key)
+                     self.debug("refreshing cluster list: %s" % cluster_for_refresh_names) if self.dbg else None
+                     self.refresh_some_clusters_for_fetch(cluster_for_refresh)
+             else:
+@@ -1256,11 +1299,7 @@ class OpenMetricsPMDA(PMDA):
+                     self.source_by_cluster[source.cluster] = source
+ 
+                     # initialize statistics
+-                    self.stats_fetch_calls[cluster] = 0
+-                    self.stats_fetch_time[cluster] = 0
+-                    self.stats_parse_time[cluster] = 0
+-                    self.stats_status[cluster] = "unknown"
+-                    self.stats_status_code[cluster] = 0
++                    self.initialize_controls(cluster)
+ 
+                     save_cluster_table = True
+                     self.log("Found source %s cluster %d" % (name, cluster))
+@@ -1583,6 +1622,11 @@ if __name__ == '__main__':
+         type=int,
+         default=2,
+         help='HTTP GET timeout for each end-point URL (default 2 seconds)')
++    parser.add_argument(
++        '-R', '--refresh',
++        type=int,
++        default=10,
++        help='timeout between cluster refreshes (default 10 seconds)')
+     parser.add_argument(
+         '-u', '--user',
+         type=str,
+@@ -1602,7 +1646,7 @@ if __name__ == '__main__':
+     # the IPC protocol is ipc_prot="binary notready". See also pmcd(1) man page.
+     # The "binary notready" setting can also be manually configured in pmcd.conf.
+     # Default domain number is PMDA(144), see -d option.
+-    pmda = OpenMetricsPMDA(args.root, args.domain, args.config, args.timeout, args.user, args.debug, args.log)
++    pmda = OpenMetricsPMDA(args.root, args.domain, args.config, args.timeout, args.refresh, args.user, args.debug, args.log)
+ 
+     # Uncomment to force -D or use: pmstore openmetrics.control.debug 1
+     # pmda.dbg = True

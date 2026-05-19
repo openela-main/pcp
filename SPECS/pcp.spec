@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.3.7
-Release: 5%{?dist}
+Release: 7%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -18,6 +18,12 @@ Patch6: pmapi-header-multilib-fix.patch
 Patch7: python-pmda-wrapper-list-fix.patch
 Patch8: systemd-tmpfiles.d-directories.patch
 Patch9: fix-pmdabpf-noarch-man-page-build-failure.patch
+Patch10: pmda-openmetrics_qa1976.patch
+Patch11: pmda-openmetrics_removal.patch
+Patch12: pcp2openmetrics_hang.patch
+Patch13: atop-cpu-utilization.patch
+Patch14: pmda-openmetrics-performance.patch
+Patch15: pcp-RHEL-133548.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -3628,6 +3634,14 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Thu Feb 19 2026 William Cohen <wcohen@redhat.com> - 6.3.7-7
+- Update selinux policy for pmda-nvidia (RHEL-133548)
+
+* Wed Nov 19 2025 Lauren Chilton <lchilton@redhat.com> - 6.3.7-6
+- Backport fix for pmdaopenmetrics metric removal (RHEL-101745)
+- Backport fix for pcp2openmetrics metric hanging (RHEL-106772)
+- Backport fix for atop cpu utilization bug (RHEL-79767)
+
 * Fri Jun 27 2025 Nathan Scott <nathans@redhat.com> - 6.3.7-5
 - Backport some more fixes to the OpenMetrics PMDA (RHEL-54039)
 - Fix a multilib regression in PCP header files (RHEL-93186)
