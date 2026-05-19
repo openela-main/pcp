@@ -1,0 +1,106 @@
+diff -ru a/src/libpcp/src/logmeta.c b/src/libpcp/src/logmeta.c
+--- a/src/libpcp/src/logmeta.c	2025-03-27 00:25:53.000000000 -0400
++++ b/src/libpcp/src/logmeta.c	2026-03-05 13:25:46.905000000 -0500
+@@ -1261,6 +1261,8 @@
+ 	    }
+ 	}
+ 	didp->numinst = numinst;
++	if (didp->alloc & PMLID_INSTLIST)
++	    free(didp->instlist);
+ 	didp->instlist = instlist;
+ 	if (didp->alloc & PMLID_NAMELIST)
+ 	    free(didp->namelist);
+@@ -1962,7 +1964,6 @@
+ 	 */
+ 	memset((void *)lidp, 0, sizeof(*lidp));
+     }
+-
+ }
+ 
+ /*
+Only in b/src/libpcp/src: logmeta.c.orig
+diff -ru a/src/libpcp_web/src/webgroup.c b/src/libpcp_web/src/webgroup.c
+--- a/src/libpcp_web/src/webgroup.c	2026-03-05 13:26:10.539000000 -0500
++++ b/src/libpcp_web/src/webgroup.c	2026-03-05 13:25:39.785000000 -0500
+@@ -1969,13 +1969,13 @@
+ 				    scrape->numnames, scrape->names,
+ 				    scrape->mplist, scrape->pmidlist,
+ 				    scrape->msg, scrape->arg);
+-	for (i = 0; i < scrape->numnames; i++)
+-	    sdsfree(scrape->names[i]);
+-	scrape->numnames = 0;
+     } else {
+ 	infofmt(*scrape->msg, "'%s' - %s", prefix,
+ 		pmErrStr_r(sts, err, sizeof(err)));
+     }
++    for (i = 0; i < scrape->numnames; i++)
++	sdsfree(scrape->names[i]);
++    scrape->numnames = 0;
+ 
+     if (sts >= 0)
+ 	sts = (scrape->status < 0) ? scrape->status : 0;
+diff -ru a/src/pmproxy/src/http.c b/src/pmproxy/src/http.c
+--- a/src/pmproxy/src/http.c	2025-03-30 21:41:26.000000000 -0400
++++ b/src/pmproxy/src/http.c	2026-03-05 13:25:31.948000000 -0500
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019-2020,2023 Red Hat.
++ * Copyright (c) 2019-2020,2023,2025 Red Hat.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms of the GNU Lesser General Public License as published
+@@ -500,14 +500,18 @@
+ 		    client->buffer ? (long unsigned)sdslen(client->buffer) : 0, client);
+ 
+ 	buffer = sdsempty();
+-	suffix = client->buffer;
+-	if (suffix == NULL) {	/* error or no data currently accumulated */
++
++	if (client->buffer == NULL) {
++	    /* error or no data currently accumulated */
+ 	    suffix = prepare_buffer(client, message, flags, 1);
+ 	} else if (message != NULL) {
+-	    suffix = sdscatsds(suffix, message);
++	    suffix = sdscatsds(client->buffer, message);
+ 	    suffix = prepare_buffer(client, suffix, flags, 1);
+ 	    sdsfree(message);
++	} else {
++	    suffix = client->buffer;
+ 	}
++	client->buffer = NULL;
+ 	message = NULL;
+ 
+ 	pmsprintf(length, sizeof(length), "%lX",
+@@ -516,8 +520,6 @@
+ 	sdsfree(suffix);
+ 	suffix = NULL;
+ 
+-	client->buffer = NULL;
+-
+ 	if (!(client->u.http.flags & HTTP_FLAG_FLUSHING)) {
+ 	    client->u.http.flags &= ~HTTP_FLAG_STREAMING; /* end of stream! */
+ 	    suffix = sdsnewlen("0\r\n\r\n", 5);		/* chunked suffix */
+@@ -537,10 +539,10 @@
+ 	} else if (message != NULL) {
+ 	    suffix = sdscatsds(client->buffer, message);
+ 	    sdsfree(message);
+-	    client->buffer = NULL;
+ 	} else {
+-	    suffix = sdsempty();
++	    suffix = client->buffer;
+ 	}
++	client->buffer = NULL;
+ 	suffix = prepare_buffer(client, suffix, flags, 1);
+ 	buffer = http_response_header(client, sdslen(suffix), sts, type);
+     }
+@@ -689,7 +691,8 @@
+ 		pmsprintf(length, sizeof(length), "%lX",
+ 			    (unsigned long)sdslen(client->buffer));
+ 		buffer = sdscatfmt(buffer, "%s\r\n%S\r\n", length, client->buffer);
+-		/* reset for next call - original released on I/O completion */
++		/* reset for next call - buffer released on I/O completion */
++		sdsfree(client->buffer);
+ 		client->buffer = NULL;	/* safe, as now held in 'buffer' */
+ 	    } else if (!buffer) {
+ 		return; /* streaming + compressing, nothing to send yet */
+Only in b/src/pmproxy/src: http.c.orig

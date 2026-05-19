@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.3.7
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -24,6 +24,7 @@ Patch12: pcp2openmetrics_hang.patch
 Patch13: atop-cpu-utilization.patch
 Patch14: pmda-openmetrics-performance.patch
 Patch15: pcp-RHEL-133548.patch
+Patch16: memory-leaks.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -3634,6 +3635,9 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Thu Mar 5 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-8
+- Backported memory leaks patches from pcp-7.0.3
+
 * Thu Feb 19 2026 William Cohen <wcohen@redhat.com> - 6.3.7-7
 - Update selinux policy for pmda-nvidia (RHEL-133548)
 
