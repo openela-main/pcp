@@ -1,0 +1,99 @@
+From 634789506f10c0156b13bfa6a3f07705ed40b5f1 Mon Sep 17 00:00:00 2001
+From: lmchilton <lauren.chilton26@gmail.com>
+Date: Tue, 13 Jan 2026 13:32:46 -0500
+Subject: [PATCH] pcp2openmetrics: resolves RHEL-138467
+
+multi-instance metrics failing when queried with
+singular metrics from archive. Turning interpolation
+on resolves this issue. Additional code added to fix
+missing headers when 2+ metrics are queried together.
+---
+ qa/1131                                |  3 +++
+ qa/1131.out                            | 12 ++++++++++++
+ src/pcp2openmetrics/pcp2openmetrics.py |  8 ++++----
+ 3 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/qa/1131 b/qa/1131
+index 118375d425..026a6ebd97 100755
+--- a/qa/1131
++++ b/qa/1131
+@@ -31,6 +31,7 @@ signal=$PCP_BINADM_DIR/pmsignal
+ trap "_cleanup; exit \$status" 0 1 2 3 15
+ 
+ A="$here/archives/rep"
++A1="$here/archives/20180606"
+ hostname=`hostname`
+ machineid=`_machine_id`
+ domainid=`_domain_name`
+@@ -98,6 +99,8 @@ pcp2openmetrics -s1 -z hinv.ncpu | _filter_pcp2openmetrics
+ echo "---"
+ pcp2openmetrics -s2 -x hinv.ncpu | _filter_pcp2openmetrics
+ echo "---"
++pcp2openmetrics -s2 -a $A1 hinv.ncpu disk.partitions.write | _archive_filter
++echo "---"
+ pcp2opentelemetry -s1 -H -z hinv.ncpu | _filter_pcp2opentelemetry
+ echo "---"
+ 
+diff --git a/qa/1131.out b/qa/1131.out
+index a8fde64d5b..a6e98b0139 100644
+--- a/qa/1131.out
++++ b/qa/1131.out
+@@ -2279,6 +2279,18 @@ hinv_ncpu{domainname="DOMAINID",groupid="GROUPID",hostname="HOST",machineid="MAC
+ hinv_ncpu{domainname="DOMAINID",groupid="GROUPID",hostname="HOST",machineid="MACHINEID",userid="USERID",agent="AGENT"} NCPU
+ hinv_ncpu{domainname="DOMAINID",groupid="GROUPID",hostname="HOST",machineid="MACHINEID",userid="USERID",agent="AGENT"} NCPU
+ ---
++# PCP5 hinv_ncpu 60.0.32 u32 PM_INDOM_NULL discrete 
++# TYPE hinv_ncpu gauge
++# HELP hinv_ncpu number of CPUs in the system
++hinv_ncpu{domainname="localdomain",groupid="999",hostname="vm01",machineid="3a6b3d7f3b7559c538a5934a24866658",userid="999",agent="linux"} 1 1528207821.599573
++# PCP5 disk_partitions_write 60.10.1 u32 60.10 counter count
++# TYPE disk_partitions_write counter
++# HELP disk_partitions_write write operations metric for storage partitions
++disk_partitions_write_total{domainname="localdomain",groupid="999",hostname="vm01",machineid="3a6b3d7f3b7559c538a5934a24866658",userid="999",instname="sda1",instid="1",agent="linux",device_type="block",indom_name="per partition"} 88156 1528207821.599573
++disk_partitions_write_total{domainname="localdomain",groupid="999",hostname="vm01",machineid="3a6b3d7f3b7559c538a5934a24866658",userid="999",instname="sda2",instid="2",agent="linux",device_type="block",indom_name="per partition"} 0 1528207821.599573
++disk_partitions_write_total{domainname="localdomain",groupid="999",hostname="vm01",machineid="3a6b3d7f3b7559c538a5934a24866658",userid="999",instname="sda5",instid="3",agent="linux",device_type="block",indom_name="per partition"} 2293 1528207821.599573
++# EOF
++---
+ {
+   "resourceMetrics": [
+     {
+diff --git a/src/pcp2openmetrics/pcp2openmetrics.py b/src/pcp2openmetrics/pcp2openmetrics.py
+index a228aaf340..bc935fab03 100755
+--- a/src/pcp2openmetrics/pcp2openmetrics.py
++++ b/src/pcp2openmetrics/pcp2openmetrics.py
+@@ -104,7 +104,7 @@ class PCP2OPENMETRICS(object):
+         self.precision = 3 # .3f
+         self.precision_force = None
+         self.timefmt = TIMEFMT
+-        self.interpol = 0
++        self.interpol = 1
+         self.count_scale = None
+         self.count_scale_force = None
+         self.space_scale = None
+@@ -121,7 +121,7 @@ class PCP2OPENMETRICS(object):
+         self.http_pass = None
+         self.http_timeout = TIMEOUT
+         self.no_comment = False
+-        self.header_flag = True
++        self.headers = []
+ 
+         # Internal
+         self.runtime = -1
+@@ -476,12 +476,12 @@ class PCP2OPENMETRICS(object):
+             help_dict = {}
+             help_dict[metric] = context.pmLookupText(pmid[0])
+ 
+-            if self.header_flag is True:
++            if metric not in self.headers:
+                 if self.no_comment is False:
+                     body += '# PCP5 %s %s %s %s %s %s\n' % (openmetrics_name(metric), pmIDStr, get_type_string(desc), pmIndomStr, semantics, units)
+                 body += '# TYPE %s %s\n' % (openmetrics_name(metric), openmetrics_type(desc))
+                 body += '# HELP %s %s\n' % (openmetrics_name(metric), help_dict[metric])
+-                self.header_flag = False
++                self.headers.append(metric)
+ 
+             for inst, name, value in results[metric]:
+                 if isinstance(value, float):
+-- 
+2.51.0
+
