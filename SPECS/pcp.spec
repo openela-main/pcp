@@ -1,12 +1,13 @@
 Name:    pcp
 Version: 5.3.7
-Release: 22%{?dist}
+Release: 22%{?dist}.5
 Summary: System-level performance monitoring and performance management
 License: GPLv2+ and LGPLv2+ and CC-BY
 URL:     https://pcp.io
 
 %global  artifactory https://performancecopilot.jfrog.io/artifactory
 Source0: %{artifactory}/pcp-source-release/pcp-%{version}.src.tar.gz
+Source1: pdu-getpdu-overflow
 Patch0:  redhat-bugzilla-2003956-pmdabcc-update-kernel-version-check-due-to-backporting.patch
 Patch1:  redhat-bugzilla-1981886-pmdasockets-backporting.patch
 Patch2:  redhat-bugzilla-2059461-pmie-systemd-fixup.patch
@@ -33,6 +34,16 @@ Patch22: redhat-issues-RHEL-57796-pmcd-pmstore-corruption.patch
 Patch23: redhat-issues-RHEL-57799-pmpost-symlink-handling.patch
 Patch24: redhat-issues-RHEL-34586-pmproxy-pmcd-fd-leak.patch
 Patch25: redhat-issues-RHEL-57788-pmdahacluster-update.patch
+# https://issues.redhat.com/browse/RHEL-213729
+# https://github.com/performancecopilot/pcp/commit/ef848fb978d26335f9676933f541c73b58f130a6
+Patch26: redhat-issues-RHEL-213729-pdu-integer-overflow.patch
+Patch27: redhat-issues-RHEL-213720-pmproxy-auth-flags.patch
+# https://issues.redhat.com/browse/RHEL-213686
+# https://github.com/performancecopilot/pcp/commit/7e27614006ff6fc4925991edbedaf1eab6b14731
+Patch28: redhat-issues-RHEL-213686-CVE-2026-16526.patch
+# https://issues.redhat.com/browse/RHEL-213662
+# https://github.com/performancecopilot/pcp/commit/c5cbeceb7d3c2af357c04065cdd911efdc270de0
+Patch29: redhat-issues-RHEL-213662-CVE-2026-16524.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -2304,6 +2315,7 @@ updated policy package.
 
 %prep
 %autosetup -p1
+install -D -m 644 %{SOURCE1} qa/pdudata/pdu-getpdu-overflow
 
 %build
 # the buildsubdir macro gets defined in %setup and is apparently only available in the next step (i.e. the %build step)
@@ -3375,6 +3387,21 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Fri Aug 14 2026 Jan Kurik <jkurik@redhat.com> - 5.3.7-22.5
+- Fix qa/2101 and qa/common.pmcd.pdu for PCP 5.3.7 testsuite compatibility
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 5.3.7-22.4
+- Fix CVE-2026-16524: command injection in linux_sockets PMDA (RHEL-213662)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 5.3.7-22.3
+- Fix CVE-2026-16526: set FD_CLOEXEC on AF_UNIX sockets (RHEL-213686)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 5.3.7-22.2
+- Fix missing pmproxy -Q and -S authentication flags (CVE-2026-16527)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 5.3.7-22.1
+- Fix integer overflow in __pmGetPDU PDU handling (RHEL-213729)
+
 * Mon Sep 09 2024 Nathan Scott <nathans@redhat.com> - 5.3.7-22
 - Fix buffer sizing checks in pmstore PDU handling (RHEL-57796)
 - Guard against symlink attacks in pmpost program (RHEL-57799)

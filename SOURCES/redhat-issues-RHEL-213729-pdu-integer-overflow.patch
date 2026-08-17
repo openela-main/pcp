@@ -1,0 +1,223 @@
+From 7800c577023232c994113c42336b84a2138cb561 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Date: Thu, 2 Jul 2026 16:59:54 +1000
+Subject: [PATCH] libpcp: fix integer overflow in __pmGetPDU() (CWE-190)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When php->len is near INT_MAX (e.g. 0x7FFFFFFF), the buffer size
+computation PDU_CHUNK * (1 + php->len / PDU_CHUNK) overflows signed
+int, producing a negative value that permanently corrupts the static
+maxsize variable.  Every subsequent __pmFindPDUBuf() call returns NULL,
+rendering the affected daemon (pmlogger, pmcd) unable to process any
+further PDUs for the remainder of its lifetime — a persistent denial
+of service requiring a restart.
+
+Fix: add an overflow guard (php->len > INT_MAX - PDU_CHUNK) before
+the multiplication, returning PM_ERR_TOOBIG for absurdly large PDU
+lengths.  This protects the NO_LIMIT code path used by pmcd and
+pmlogger that is not covered by the existing ceiling check.
+
+Also add _filter_pmcd() to qa/common.pmcd.pdu to normalize fd=N in
+pmcd log output, and qa/2105 with a crafted PDU exercising the
+overflow.
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+ qa/2105              |  17 +++++++
+ qa/2105.out          |  10 ++++
+ qa/common.pmcd.pdu   | 108 +++++++++++++++++++++++++++++++++++++++++++
+ qa/group             |   1 +
+ src/libpcp/src/pdu.c |   8 ++++
+ 5 files changed, 144 insertions(+)
+ create mode 100755 qa/2105
+ create mode 100644 qa/2105.out
+ create mode 100644 qa/common.pmcd.pdu
+
+diff --git a/qa/2105 b/qa/2105
+new file mode 100755
+index 000000000..44b849ad3
+--- /dev/null
++++ b/qa/2105
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# PCP QA Test No. 2105
++# Verify __pmGetPDU rejects PDU with len near INT_MAX
++# (integer overflow in buffer size computation, CWE-190)
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++pdu_data=pdudata/pdu-getpdu-overflow
++grep_pattern="bad PDU len=.*exceeds maximum|PDU len=.*too large"
++
++# this is one of the generic pmcd PDU exerciser tests ...
++#
++. ./common.pmcd.pdu
+diff --git a/qa/2105.out b/qa/2105.out
+new file mode 100644
+index 000000000..a304f9d91
+--- /dev/null
++++ b/qa/2105.out
+@@ -0,0 +1,10 @@
++QA output created by 2105
++expect error(s) to be logged ...
++__pmGetPDU: fd=N type=0x8000 bad PDU len=2147483647 in hdr exceeds maximum client PDU size (65536)
++
++and no valgrind badness ...
++Memcheck, a memory error detector
++LEAK SUMMARY:
++definitely lost: 0 bytes in 0 blocks
++indirectly lost: 0 bytes in 0 blocks
++ERROR SUMMARY: 0 errors from 0 contexts ...
+diff --git a/qa/common.pmcd.pdu b/qa/common.pmcd.pdu
+new file mode 100644
+index 000000000..8fa832aa8
+--- /dev/null
++++ b/qa/common.pmcd.pdu
+@@ -0,0 +1,108 @@
++# This is really a full QA test for stress testing pmcd's protocol
++# handling ... set the shell variables
++# $pdu_data
++#	ascii pdu specifications suitable for src/pdu-gadget or binary
++#	protocol data stream, these typically contain malformed PDUs
++#	(see the qa/pdudata directory for examples) ... this needs
++#	to be a relative path
++# $grep_pattern
++#	a grep -E pattern for scanning pmcd.log once the test has been
++#	run
++# and then source this file
++
++[ -z "$pdu_data" ] && echo "Botch! \$pdu_data not set" && exit 1
++[ -z "$grep_pattern" ] && echo "Botch! \$grep_pattern not set" && exit 1
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++[ ! -f "$here/$pdu_data" ] && echo "Botch! PDU data file $here/$pdu_data not found" && exit 1
++
++
++which nc >/dev/null 2>&1 || _notrun "no nc executable installed"
++# Need nc option to terminate when EOF encountered on stdin,
++# but unfortunately there are multiple versions of nc(1) ...
++nc --help >$tmp.out 2>&1
++if grep -q '.-[^ ]*N' $tmp.out
++then
++    __nc_opt=-N
++elif grep -q '.--send-only' $tmp.out
++then
++    __nc_opt="--send-only"
++else
++    cat $tmp.out >>$here/$seq.full
++    _notrun 'nc --help is not helping ... see $seq.full'
++fi
++_check_valgrind
++
++_cleanup()
++{
++    cat pmcd.log >>$here/$seq.full
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter()
++{
++    sed \
++	-e '/^Command: /d' \
++    # end
++}
++
++_filter_pmcd()
++{
++    sed \
++	-e 's/fd=[0-9][0-9]*/fd=N/g' \
++	-e 's/^\[.*\] pmcd([0-9]*) [A-Za-z]*: //' \
++    # end
++}
++
++mkdir $tmp || exit 1
++cd $tmp
++grep sampledso $PCP_PMCDCONF_PATH >pmcd.conf
++$PCP_AWK_PROG <$PCP_PMCDCONF_PATH >>pmcd.conf '
++$1 == "[access]"	{ print ""; want = 1 }
++want == 1		{ print }'
++cat pmcd.conf >>$here/$seq.full
++__port=`_find_free_port`
++echo "__port=$__port" >>$here/$seq.full
++
++# real QA test starts here
++valgrind --leak-check=full $PCP_BINADM_DIR/pmcd -f -Dpdu,appl3,attr -c ./pmcd.conf -s ./pmcd.socket -p $__port  >out 2>err &
++valgrind_pid=$!
++sleep 2
++__pmcd_pid=`$PCP_PS_PROG $PCP_PS_ALL_FLAGS | grep '[p]mcd -f -Dpdu' | $PCP_AWK_PROG '{ print $2 }'`
++echo "__pmcd_pid=$__pmcd_pid" >>$here/$seq.full
++case "`file $here/$pdu_data`"
++in
++    *'ASCII text'*)
++	# assume ascii PDU specification as input to pdu-gadget
++	$here/src/pdu-gadget -p $__port <$here/$pdu_data 2>$tmp.err
++	;;
++    *)
++	# assume binary data, e.g. SUSE reproducers
++	rm -f $tmp.err
++	nc $__nc_opt <$here/$pdu_data localhost $__port 2>&1 \
++	;;
++esac \
++| od -X >>$here/$seq.full
++sleep 2
++kill -TERM $__pmcd_pid
++wait
++
++[ -s $tmp.err ] && cat $tmp.err
++
++echo "expect error(s) to be logged ..."
++grep -E "$grep_pattern" pmcd.log | _filter_pmcd
++
++echo
++echo "and no valgrind badness ..."
++cat out err | _filter_valgrind | _filter
++
++# success, all done
++exit
+diff --git a/qa/group b/qa/group
+index 86265eb1f..742d3b54b 100644
+--- a/qa/group
++++ b/qa/group
+@@ -1980,4 +1980,5 @@ x11
+ 1984 pmlogconf pmda.redis local
+ 1985 pmfind local valgrind
+ 1986 pmfind local
++2105 libpcp pmcd local security pmcd.pdu
+ 4751 libpcp threads valgrind local pcp helgrind
+diff --git a/src/libpcp/src/pdu.c b/src/libpcp/src/pdu.c
+index 4afe5719c..5b934513a 100644
+--- a/src/libpcp/src/pdu.c
++++ b/src/libpcp/src/pdu.c
+@@ -585,6 +585,14 @@ check_read_len:
+ 
+ 	PM_LOCK(pdu_lock);
+ 	if (php->len > maxsize) {
++	    if (php->len > INT_MAX - PDU_CHUNK) {
++		PM_UNLOCK(pdu_lock);
++		if (pmDebugOptions.pdu)
++		    pmNotifyErr(LOG_ERR, "%s: fd=%d PDU len=%d too large",
++				"__pmGetPDU", fd, php->len);
++		__pmUnpinPDUBuf(pdubuf);
++		return PM_ERR_TOOBIG;
++	    }
+ 	    tmpsize = PDU_CHUNK * ( 1 + php->len / PDU_CHUNK);
+ 	    maxsize = tmpsize;
+ 	}
