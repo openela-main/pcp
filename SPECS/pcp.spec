@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.3.7
-Release: 8%{?dist}
+Release: 8%{?dist}.4
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -25,6 +25,17 @@ Patch13: atop-cpu-utilization.patch
 Patch14: pmda-openmetrics-performance.patch
 Patch15: pcp-RHEL-133548.patch
 Patch16: memory-leaks.patch
+# https://issues.redhat.com/browse/RHEL-213688
+# https://github.com/performancecopilot/pcp/commit/7e27614006ff6fc4925991edbedaf1eab6b14731
+Patch17: pcp-6.3.7-CVE-2026-16526.patch
+# https://github.com/performancecopilot/pcp/commit/ef848fb978d26335f9676933f541c73b58f130a6
+Patch18: pcp-6.3.7-CVE-2026-16529.patch
+# https://issues.redhat.com/browse/RHEL-213712
+# https://github.com/performancecopilot/pcp/commit/d96ba5a716eeff7840138eb08fbab0d11a57f641
+Patch19: pcp-6.3.7-CVE-2026-16527.patch
+# https://issues.redhat.com/browse/RHEL-213668
+# https://github.com/performancecopilot/pcp/commit/c5cbeceb7d3c2af357c04065cdd911efdc270de0
+Patch20: pcp-6.3.7-CVE-2026-16524.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -2506,6 +2517,9 @@ updated policy package.
 %prep
 %autosetup -p1
 
+# Create binary QA test data for CVE-2026-16529 overflow test (8 bytes)
+/usr/bin/printf '\x7f\xff\xff\xff\x00\x00\x80\x00' > qa/pdudata/pdu-getpdu-overflow
+
 %build
 # the buildsubdir macro gets defined in %%setup and is apparently only available in the next step (i.e. the %%build step)
 %global __strip %{_builddir}/%{?buildsubdir}/build/rpm/custom-strip
@@ -3635,6 +3649,19 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.4
+- Fix CVE-2026-16524 command injection in linux_sockets PMDA (RHEL-213668)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.3
+- Fix missing pmproxy -Q and -S authentication flags (CVE-2026-16527,
+  RHEL-213712)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.2
+- Fix integer overflow in __pmGetPDU() (CVE-2026-16529, RHEL-213737)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.1
+- Fix CVE-2026-16526: set FD_CLOEXEC on AF_UNIX sockets (RHEL-213688)
+
 * Thu Mar 5 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-8
 - Backported memory leaks patches from pcp-7.0.3
 
