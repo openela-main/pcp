@@ -1,13 +1,34 @@
 Name:    pcp
 Version: 7.0.3
-Release: 3%{?dist}
+Release: 5%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
 Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
+Source1: pdu-getpdu-overflow
 Patch0: pcp2openmetrics-archive.patch
 Patch1: pcp-RHEL-132402.patch
+Patch2: pcp-7.0.3-CVE-2026-16529.patch
+Patch3: pcp-7.0.3-CVE-2026-16527.patch
+Patch4: pcp-7.0.3-CVE-2026-16526.patch
+Patch5: pcp-7.0.3-CVE-2026-16524.patch
+Patch6: pcp-7.0.3-CVE-2026-16530.patch
+Patch7: pcp-7.0.3-CVE-2026-16531.patch
+Patch8: pcp-7.0.3-pmlogmv-command-injection.patch
+Patch9: pcp-7.0.3-pmieconf-command-injection.patch
+Patch10: pcp-7.0.3-OOB-pmDecodeInstance.patch
+Patch11: pcp-7.0.3-OOB-pmDecodeLabel.patch
+Patch12: pcp-7.0.3-OOB-pmDecodeLogStatus.patch
+Patch13: pcp-7.0.3-OOB-pmDiscoverDecodeMetaInDom.patch
+Patch14: pcp-7.0.3-OOB-pmLogLoadLabelSet.patch
+Patch15: pcp-7.0.3-pducrash-oob-tests.patch
+Patch16: pcp-7.0.3-pmdaroot-peer-credentials.patch
+Patch17: pcp-7.0.3-timezone-zoneinfo-validation.patch
+Patch18: pcp-7.0.3-pmproxy-rest-certreqd.patch
+Patch19: pcp-7.0.3-pmproxy-logger-auth.patch
+Patch20: pcp-7.0.3-pmproxy-logger-meta-network.patch
+Patch21: pcp-7.0.3-scanmeta-LogLoadInDom-caller.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -2263,6 +2284,7 @@ updated policy package.
 
 %prep
 %autosetup -p1
+install -D -m 644 %{SOURCE1} qa/pdudata/pdu-getpdu-overflow
 
 %build
 # the buildsubdir macro gets defined in %%setup and is apparently only available in the next step (i.e. the %%build step)
@@ -3425,6 +3447,22 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Fri Aug 14 2026 Jan Kuřík <jkurik@redhat.com> - 7.0.3-5
+- Fix CVE-2026-16530: __pmLogLoadInDom OOB pointer dereference (RHEL-213746)
+- Fix CVE-2026-16531: pmproxy logger servlet path traversal (RHEL-213756)
+- Backport remaining PCP security hardening fixes from private-pcp
+- pmieconf and pmlogmv command injection hardening (CWE-78)
+- libpcp PDU decode OOB read and overflow guards (CWE-125/190/195)
+- timezone and zoneinfo string validation
+- pmdaroot peer credential verification (CWE-403)
+- pmproxy REST CERT_REQD enforcement and logger servlet authentication
+
+* Fri Aug 14 2026 Jan Kuřík <jkurik@redhat.com> - 7.0.3-4
+- Fix CVE-2026-16524: linux_sockets PMDA command injection (RHEL-213659)
+- Fix CVE-2026-16526: FD_CLOEXEC privilege escalation via pmdaroot (RHEL-213695)
+- Fix CVE-2026-16527: pmproxy unauthenticated /store access (RHEL-213721)
+- Fix CVE-2026-16529: __pmGetPDU signed integer overflow DoS (RHEL-213732)
+
 * Thu Feb 19 2026 William Cohen <wcohen@redhat.com> - 7.0.3-3
 - Update selinux polices for rocestat and nvidia pmdas (RHEL-132402, RHEL-134388, RHEL-133519)
 

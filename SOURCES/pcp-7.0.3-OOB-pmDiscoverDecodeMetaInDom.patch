@@ -1,0 +1,36 @@
+From 7f42013d33 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] libpcp_web: add numinst overflow check in pmDiscoverDecodeMetaInDom (CWE-125/190)
+
+Defense-in-depth for the __pmLogLoadInDom streaming path fix (commit 1).
+When __pmLogLoadInDom is called with acp=NULL from the pmproxy discover
+code, a garbage numinst value read from a too-small buffer could be
+passed to calloc(numinst, sizeof(char *)), causing an integer overflow
+in the allocation size.
+
+Add explicit validation that numinst > 0 and does not overflow SIZE_MAX
+before the calloc in pmDiscoverDecodeMetaInDom().  The primary fix
+(rlen and numinst validation in __pmLogLoadInDom itself) prevents this
+value from being garbage in the first place.
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/src/libpcp_web/src/discover.c b/src/libpcp_web/src/discover.c
+--- a/src/libpcp_web/src/discover.c
++++ b/src/libpcp_web/src/discover.c
+@@ -2276,6 +2276,11 @@
+ 	     */
+ 	    char	**namelist;
+ 	    int		i;
++	    if (lid.numinst <= 0 ||
++		(size_t)lid.numinst > SIZE_MAX / sizeof(char *)) {
++		__pmFreeLogInDom(&lid);
++		return -EINVAL;
++	    }
+ 	    namelist = (char **)calloc(lid.numinst, sizeof(char *));
+ 	    if (namelist == NULL) {
+ 		pmNoMem(__FUNCTION__, lid.numinst * sizeof(char *), PM_RECOV_ERR);

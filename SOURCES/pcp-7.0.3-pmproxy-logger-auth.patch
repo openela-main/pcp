@@ -1,0 +1,199 @@
+From 4121ae06f5 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] pmproxy: add optional authentication for logger servlet
+
+The pmproxy logger servlet endpoints (/logger/label, /logger/meta,
+/logger/index, /logger/volume) are registered unconditionally with no
+authentication check, allowing any HTTP client to submit archive data.
+
+Add a new pmproxy.conf option [pmlogger] authenticate = true that
+enables HTTP Basic authentication for all logger servlet requests.
+When set, requests without valid credentials are rejected with
+HTTP 403 Forbidden.  Disabled by default to preserve existing behavior.
+
+This complements the global -S flag: -S requires authentication for
+all servlets, while [pmlogger] authenticate = true targets only the
+logger servlet endpoints.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/qa/2108 b/qa/2108
+--- a/qa/2108
++++ b/qa/2108
+@@ -0,0 +1,97 @@
++#!/bin/sh
++# PCP QA Test No. 2108
++# Verify pmproxy logger servlet authentication via pmproxy.conf
++# [pmlogger] authenticate = true
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++which curl >/dev/null 2>&1 || _notrun "no curl executable installed"
++
++_cleanup()
++{
++    [ -n "$__pid" ] && kill $__pid 2>/dev/null
++    wait $__pid 2>/dev/null
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++__pid=""
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++# real QA test starts here
++
++echo "=== logger servlet with authenticate = true ==="
++__port=`_find_free_port`
++cat >$tmp.conf <<EOF
++[pmproxy]
++pcp.enabled = true
++http.enabled = true
++[pmlogger]
++enabled = true
++authenticate = true
++EOF
++$PCP_BINADM_DIR/pmproxy -f -p $__port -l $tmp.log -c $tmp.conf &
++__pid=$!
++sleep 1
++if ! kill -0 $__pid 2>/dev/null; then
++    echo "FAIL: pmproxy did not start"
++    exit
++fi
++
++# unauthenticated POST to logger/label should be rejected
++__code=$(curl -s -o /dev/null -w '%{http_code}' \
++    -X POST "http://localhost:$__port/logger/label" \
++    -H 'Content-Type: application/octet-stream' \
++    --data-binary 'dummy' 2>/dev/null)
++echo "unauthenticated POST /logger/label: HTTP $__code"
++
++# unauthenticated GET to pmapi should still work (not logger servlet)
++__code=$(curl -s -o /dev/null -w '%{http_code}' \
++    "http://localhost:$__port/pmapi/context?hostspec=localhost" 2>/dev/null)
++echo "unauthenticated GET /pmapi/context: HTTP $__code"
++
++kill $__pid
++wait $__pid 2>/dev/null
++__pid=""
++
++echo
++echo "=== logger servlet without authenticate (default) ==="
++__port=`_find_free_port`
++cat >$tmp.conf2 <<EOF
++[pmproxy]
++pcp.enabled = true
++http.enabled = true
++[pmlogger]
++enabled = true
++EOF
++$PCP_BINADM_DIR/pmproxy -f -p $__port -l $tmp.log2 -c $tmp.conf2 &
++__pid=$!
++sleep 1
++if ! kill -0 $__pid 2>/dev/null; then
++    echo "FAIL: pmproxy did not start"
++    exit
++fi
++
++# unauthenticated POST to logger/label should be allowed (will fail on bad data, not auth)
++__code=$(curl -s -o /dev/null -w '%{http_code}' \
++    -X POST "http://localhost:$__port/logger/label" \
++    -H 'Content-Type: application/octet-stream' \
++    --data-binary 'dummy' 2>/dev/null)
++echo "unauthenticated POST /logger/label: HTTP $__code"
++
++kill $__pid
++wait $__pid 2>/dev/null
++__pid=""
++
++# success, all done
++exit
+diff --git a/qa/2108.out b/qa/2108.out
+--- a/qa/2108.out
++++ b/qa/2108.out
+@@ -0,0 +1,7 @@
++QA output created by 2108
++=== logger servlet with authenticate = true ===
++unauthenticated POST /logger/label: HTTP 403
++unauthenticated GET /pmapi/context: HTTP 200
++
++=== logger servlet without authenticate (default) ===
++unauthenticated POST /logger/label: HTTP 400
+diff --git a/qa/group b/qa/group
+--- a/qa/group
++++ b/qa/group
+@@ -2308,5 +2308,6 @@
+ 2102 pmlogmv local security
+ 2103 pmieconf local security
+ 2107 libpcp local security
++2108 pmproxy local security
+ 4751 libpcp threads valgrind local pcp helgrind
+ 9000 other local
+diff --git a/src/pmproxy/pmproxy.conf b/src/pmproxy/pmproxy.conf
+--- a/src/pmproxy/pmproxy.conf
++++ b/src/pmproxy/pmproxy.conf
+@@ -122,6 +122,9 @@
+ # allow REST API webhook receiving remote pmlogger(1) archive content
+ enabled = true
+ 
++# require HTTP Basic authentication for logger servlet endpoints
++#authenticate = true
++
+ # bypass persistent storage of pmlogger archives, use key server only
+ #cached = true
+ 
+diff --git a/src/pmproxy/src/logger.c b/src/pmproxy/src/logger.c
+--- a/src/pmproxy/src/logger.c
++++ b/src/pmproxy/src/logger.c
+@@ -106,6 +106,9 @@
+     if (status >= 0) {
+ 	code = HTTP_STATUS_OK;
+ 	body = pmlogger_success;
++    } else if (client->u.http.parser.status_code) {
++	code = client->u.http.parser.status_code;
++	body = pmlogger_failure;
+     } else {
+ 	if (status == -EEXIST)
+ 	    code = HTTP_STATUS_CONFLICT;
+@@ -139,6 +142,8 @@
+     proxylog(level, message, baton->client->proxy);
+ }
+ 
++static int pmlogger_authenticate;
++
+ static pmLogGroupSettings pmlogger_settings = {
+     .callbacks.on_archive	= on_pmlogger_archive,
+     .callbacks.on_done          = on_pmlogger_done,
+@@ -273,6 +278,10 @@
+ {
+     if (pmDebugOptions.http)
+ 	fprintf(stderr, "logger servlet headers (client=%p)\n", client);
++    if (pmlogger_authenticate &&
++	(!client->u.http.username || !client->u.http.password)) {
++	client->u.http.parser.status_code = HTTP_STATUS_FORBIDDEN;
++    }
+     return 0;
+ }
+ 
+@@ -378,6 +387,11 @@
+ {
+     mmv_registry_t	*registry = proxymetrics(proxy, METRICS_LOGGROUP);
+     mmv_registry_t	*logpaths = proxymetrics(proxy, METRICS_LOGPATHS);
++    sds			value;
++
++    if ((value = pmIniFileLookup(proxy->config, "pmlogger", "authenticate"))
++	&& strcmp(value, "true") == 0)
++	pmlogger_authenticate = 1;
+ 
+     PARAM_CLIENT = sdsnew("client");
+ 

@@ -1,0 +1,155 @@
+From 7465d7cbdb Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] qa: extend pducrash with tests for vulns 9, 12, 13
+
+Add three new test functions to pducrash.c exercising the OOB read
+fixes:
+
+- decode_log_labelset: calls __pmLogLoadLabelSet with rlen=1 for both
+  V2 and V3 record types, verifying the minimum-length guard rejects
+  undersized records (vuln 9)
+
+- decode_log_status_oob: crafts a PDU_LOG_STATUS V3 with hostname_len
+  extending past the PDU boundary, verifying the bounds check now runs
+  before strdup (vuln 12)
+
+- decode_instance_overshoot: crafts a PDU_INSTANCE claiming 2 entries
+  but only containing 1, where the alignment-padded advance pushes ip
+  past pdu_end, verifying the signed pointer guard catches it (vuln 13)
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/qa/513.out b/qa/513.out
+--- a/qa/513.out
++++ b/qa/513.out
+@@ -277,6 +277,14 @@
+   __pmLogLoadInDom: sts = -12373 (Corrupted record in a PCP archive)
+ [log_indom] checking out-of-range stridx with acp==NULL
+   __pmLogLoadInDom: sts = -12373 (Corrupted record in a PCP archive)
++[log_labelset] checking rlen too small for v3 header
++  __pmLogLoadLabelSet: sts = -12373 (Corrupted record in a PCP archive)
++[log_labelset] checking rlen too small for v2 header
++  __pmLogLoadLabelSet: sts = -12373 (Corrupted record in a PCP archive)
++[log_status_oob] checking hostname_len past PDU boundary
++  __pmDecodeLogStatus: sts = -12366 (IPC protocol failure)
++[instance_overshoot] checking alignment overshoot past pdu_end
++  __pmDecodeInstance: sts = -12366 (IPC protocol failure)
+ === filtered valgrind report ===
+ Memcheck, a memory error detector
+ Command: src/pducrash
+diff --git a/qa/src/pducrash.c b/qa/src/pducrash.c
+--- a/qa/src/pducrash.c
++++ b/qa/src/pducrash.c
+@@ -1703,6 +1703,102 @@
+     }
+ }
+ 
++/*
++ * Test __pmLogLoadLabelSet with undersized rlen (vuln 9).
++ */
++static void
++decode_log_labelset(const char *name)
++{
++    __pmTimestamp	stamp;
++    pmLabelSet		*sets = NULL;
++    int			type, ident, nsets, sts;
++    char		tiny[4];
++
++    fprintf(stderr, "[%s] checking rlen too small for v3 header\n", name);
++    memset(tiny, 0, sizeof(tiny));
++    sts = __pmLogLoadLabelSet(tiny, 1, TYPE_LABEL, &stamp, &type, &ident, &nsets, &sets);
++    fprintf(stderr, "  __pmLogLoadLabelSet: sts = %d (%s)\n", sts, pmErrStr(sts));
++    if (sts >= 0 && sets) pmFreeLabelSets(sets, nsets);
++
++    fprintf(stderr, "[%s] checking rlen too small for v2 header\n", name);
++    memset(tiny, 0, sizeof(tiny));
++    sets = NULL;
++    sts = __pmLogLoadLabelSet(tiny, 1, TYPE_LABEL_V2, &stamp, &type, &ident, &nsets, &sets);
++    fprintf(stderr, "  __pmLogLoadLabelSet: sts = %d (%s)\n", sts, pmErrStr(sts));
++    if (sts >= 0 && sets) pmFreeLabelSets(sets, nsets);
++}
++
++/*
++ * Test __pmDecodeLogStatus with hostname_len past PDU end (vuln 12).
++ */
++static void
++decode_log_status_oob(const char *name)
++{
++    __pmLoggerStatus	*log;
++    int			sts;
++    int			save_ipc_version = __pmVersionIPC(0);
++    struct log_sts {
++	__pmPDUHdr	hdr;
++	__int32_t	buf[20+2*PM_LOG_MAXHOSTLEN+2*PM_TZ_MAXLEN];
++    } *log_sts;
++
++    __pmSetVersionIPC(0, LOG_PDU_VERSION3);
++    log_sts = (struct log_sts *)malloc(sizeof(*log_sts));
++
++    fprintf(stderr, "[%s] checking hostname_len past PDU boundary\n", name);
++    memset(log_sts, 0, sizeof(*log_sts));
++    log_sts->hdr.len = 100;
++    log_sts->hdr.type = PDU_LOG_STATUS;
++    /* buf[13] is pmcd_hostname_len in V3 — set to extend past the PDU */
++    log_sts->buf[13] = htonl(90);
++    sts = __pmDecodeLogStatus((__pmPDU *)log_sts, &log);
++    fprintf(stderr, "  __pmDecodeLogStatus: sts = %d (%s)\n", sts, pmErrStr(sts));
++    if (sts == 0) __pmFreeLogStatus(log, 1);
++
++    free(log_sts);
++    __pmSetVersionIPC(0, save_ipc_version);
++}
++
++/*
++ * Test __pmDecodeInstance with alignment-padding overshoot (vuln 13).
++ * Craft a PDU_INSTANCE with numinst=2 where the first entry's namelen
++ * causes the alignment-padded advance to push ip past pdu_end.
++ */
++static void
++decode_instance_overshoot(const char *name)
++{
++    pmInResult		*inresult;
++    int			sts;
++    struct {
++	__pmPDUHdr	hdr;
++	pmInDom		indom;
++	int		numinst;
++	/* entry 0: inst + namelen + name (padded) */
++	int		inst0;
++	int		namelen0;
++	char		name0[4];	/* padded to 4 bytes */
++	/* entry 1 would start here — but PDU ends before it */
++    } *pdu;
++
++    pdu = (typeof(pdu))malloc(sizeof(*pdu));
++
++    fprintf(stderr, "[%s] checking alignment overshoot past pdu_end\n", name);
++    memset(pdu, 0, sizeof(*pdu));
++    pdu->hdr.len = sizeof(*pdu);
++    pdu->hdr.type = PDU_INSTANCE;
++    pdu->numinst = htonl(2);	/* claim 2 entries but only room for 1 */
++    pdu->inst0 = htonl(0);
++    pdu->namelen0 = htonl(3);	/* 3 bytes + pad to 4 = alignment overshoot */
++    pdu->name0[0] = 'a';
++    pdu->name0[1] = 'b';
++    pdu->name0[2] = 'c';
++    sts = __pmDecodeInstance((__pmPDU *)pdu, &inresult);
++    fprintf(stderr, "  __pmDecodeInstance: sts = %d (%s)\n", sts, pmErrStr(sts));
++    if (sts >= 0) __pmFreeInResult(inresult);
++
++    free(pdu);
++}
++
+ typedef void (*decode_t)(const char *);
+ 
+ struct pdu {
+@@ -1738,6 +1834,9 @@
+     { "desc_ids",	decode_desc_ids },
+     { "descs", 		decode_descs },
+     { "log_indom",	decode_log_indom },
++    { "log_labelset",	decode_log_labelset },
++    { "log_status_oob",	decode_log_status_oob },
++    { "instance_overshoot", decode_instance_overshoot },
+ };
+ 
+ int

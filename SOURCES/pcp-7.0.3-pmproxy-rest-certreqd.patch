@@ -1,0 +1,41 @@
+From 81a9efe96d Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] pmproxy: enforce -Q (CERT_REQD) for REST API connections
+
+The -Q flag (PM_SERVER_FEATURE_CERT_REQD) was only enforced in the
+legacy PCP wire protocol path (deprecated.c).  The modern HTTP/REST
+API path had no check, allowing unauthenticated plain-HTTP clients
+to access all endpoints even when -Q was specified.
+
+Add enforcement in on_headers_complete() alongside the existing -S
+(CREDS_REQD) check: when CERT_REQD is active, reject requests where
+the connection is not TLS or no client certificate was presented.
+Returns HTTP 403 Forbidden.  If OpenSSL is not compiled in, all
+connections are rejected when -Q is set since TLS is unavailable.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/src/pmproxy/src/http.c b/src/pmproxy/src/http.c
+--- a/src/pmproxy/src/http.c
++++ b/src/pmproxy/src/http.c
+@@ -1110,6 +1110,20 @@
+ 	}
+     }
+ 
++    /* client certificate required for all servlets */
++    if (__pmServerHasFeature(PM_SERVER_FEATURE_CERT_REQD)) {
++#ifdef HAVE_OPENSSL
++	if (!client->stream.secure ||
++	    !client->secure.ssl ||
++	    SSL_get_peer_certificate(client->secure.ssl) == NULL) {
++	    client->u.http.parser.status_code = HTTP_STATUS_FORBIDDEN;
++	}
++#else
++	/* no TLS support compiled in, reject all connections */
++	client->u.http.parser.status_code = HTTP_STATUS_FORBIDDEN;
++#endif
++    }
++
+     return sts;
+ }
+ 

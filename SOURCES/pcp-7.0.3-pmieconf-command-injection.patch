@@ -1,0 +1,136 @@
+From cdc9676ab6 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] pmieconf: fix command injection via $HOME and -f (CWE-78)
+
+The write_pmiefile() function constructed a shell command via
+pmsprintf("/bin/mkdir -p %s", fname) and passed it to system().
+The fname value derives from either $HOME or the -f command-line
+argument without sanitization, enabling command injection through
+shell metacharacters in the path.
+
+Fix: replace system("/bin/mkdir -p ...") with __pmMakePath() which
+creates directories recursively using mkdir() syscalls directly,
+with no shell involvement.
+
+Add qa/2103 verifying that legitimate directory creation works and
+that shell metacharacters in -f and $HOME paths do not result in
+command execution.
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/qa/2103 b/qa/2103
+--- a/qa/2103
++++ b/qa/2103
+@@ -0,0 +1,62 @@
++#!/bin/sh
++# PCP QA Test No. 2103
++# Verify pmieconf does not execute shell metacharacters in -f path
++# (CWE-78 fix verification)
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++which pmieconf >/dev/null 2>&1 || _notrun "pmieconf not installed"
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++# real QA test starts here
++
++echo "=== normal -f path should work ==="
++mkdir -p $tmp.dir
++pmieconf -f $tmp.dir/subdir/test.pmie modify global delta "2min" >$tmp.out 2>&1
++_sts=$?
++if [ -f $tmp.dir/subdir/test.pmie ]; then
++    echo "directory creation and file write succeeded"
++else
++    echo "FAIL: file not created (exit=$_sts)"
++    cat $tmp.out
++fi
++
++echo
++echo "=== -f path with semicolon should not execute commands ==="
++_bad="$tmp.dir/bad;touch $tmp.dir/pwned"
++pmieconf -f "$_bad" modify global delta "2min" >$tmp.out 2>&1
++if [ -f "$tmp.dir/pwned" ]; then
++    echo "FAIL: shell metacharacter was executed"
++else
++    echo "no command execution from semicolon in path"
++fi
++
++echo
++echo "=== verify no injected file from HOME variable ==="
++_badhome="$tmp.dir/home;touch $tmp.dir/pwned2"
++HOME="$_badhome" pmieconf modify global delta "2min" >$tmp.out 2>&1
++if [ -f "$tmp.dir/pwned2" ]; then
++    echo "FAIL: shell metacharacter in HOME was executed"
++else
++    echo "no command execution from HOME injection"
++fi
++
++# success, all done
++exit
+diff --git a/qa/2103.out b/qa/2103.out
+--- a/qa/2103.out
++++ b/qa/2103.out
+@@ -0,0 +1,9 @@
++QA output created by 2103
++=== normal -f path should work ===
++directory creation and file write succeeded
++
++=== -f path with semicolon should not execute commands ===
++no command execution from semicolon in path
++
++=== verify no injected file from HOME variable ===
++no command execution from HOME injection
+diff --git a/qa/group b/qa/group
+--- a/qa/group
++++ b/qa/group
+@@ -2306,5 +2306,6 @@
+ 2104 libpcp local security
+ 2101 pmda.sockets local security
+ 2102 pmlogmv local security
++2103 pmieconf local security
+ 4751 libpcp threads valgrind local pcp helgrind
+ 9000 other local
+diff --git a/src/pmieconf/rules.c b/src/pmieconf/rules.c
+--- a/src/pmieconf/rules.c
++++ b/src/pmieconf/rules.c
+@@ -1808,7 +1808,6 @@
+ {
+     time_t	now = time(NULL);
+     char	*p, *msg = NULL;
+-    char	buf[MAXPATHLEN+10];
+     char	*fname = get_pmiefile();
+     FILE	*fp;
+     int		i;
+@@ -1819,9 +1818,8 @@
+ 
+ 	*p = '\0';	/* p is the dirname of fname */
+ 	if (stat(fname, &sbuf) < 0) {
+-	    pmsprintf(buf, sizeof(buf), "/bin/mkdir -p %s", fname);
+-	    if (system(buf) < 0) {
+-		pmsprintf(errmsg, sizeof(errmsg), "failed to create directory \"%s\"", p);
++	    if (__pmMakePath(fname, 0755) < 0) {
++		pmsprintf(errmsg, sizeof(errmsg), "failed to create directory \"%s\"", fname);
+ 		return errmsg;
+ 	    }
+ 	}

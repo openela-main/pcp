@@ -1,0 +1,56 @@
+From b743fc5879 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] libpcp: fix OOB read in __pmDecodeInstance (CWE-125/195)
+
+The __pmDecodeInstance() loop advances ip by the PDU alignment-padded
+entry size after each instance.  When namelen % 4 != 0, the padding
+advance can push ip past pdu_end.  The existing bounds check casts the
+pointer difference to size_t: (size_t)(pdu_end - (char *)ip).  When ip
+is past pdu_end, this produces a negative ptrdiff_t that wraps to a
+very large size_t, causing both bounds checks to silently pass.
+Execution falls through to memcpy reading past the PDU buffer.
+
+Fix: add an explicit signed pointer guard at the top of each loop
+iteration — if ((char *)ip >= pdu_end) — before the size_t cast.
+This ensures the subsequent unsigned comparison is always valid.
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/src/libpcp/src/p_instance.c b/src/libpcp/src/p_instance.c
+--- a/src/libpcp/src/p_instance.c
++++ b/src/libpcp/src/p_instance.c
+@@ -289,6 +289,13 @@
+     pdu_used = (char *)&pp->rest[0];
+     for (i = j = 0; i < res->numinst; i++) {
+ 	ip = (instlist_t *)&pp->rest[j/sizeof(__pmPDU)];
++	if ((char *)ip >= pdu_end) {
++	    if (pmDebugOptions.pdu)
++		fprintf(stderr, "%s: PM_ERR_IPC: inst[%d] ip past pdu_end\n",
++		    __FUNCTION__, i);
++	    sts = PM_ERR_IPC;
++	    goto badsts;
++	}
+ 	if (sizeof(instlist_t) - sizeof(ip->name) > (size_t)(pdu_end - (char *)ip)) {
+ 	    if (pmDebugOptions.pdu) {
+ 		fprintf(stderr, "__pmDecodeInstance: PM_ERR_IPC: sizeof(instlist_t) %d - sizeof(name) %d > remainder %d\n",
+diff --git a/src/libpcp3/src/p_instance.c b/src/libpcp3/src/p_instance.c
+--- a/src/libpcp3/src/p_instance.c
++++ b/src/libpcp3/src/p_instance.c
+@@ -290,6 +290,13 @@
+     pdu_used = (char *)&pp->rest[0];
+     for (i = j = 0; i < res->numinst; i++) {
+ 	ip = (instlist_t *)&pp->rest[j/sizeof(__pmPDU)];
++	if ((char *)ip >= pdu_end) {
++	    if (pmDebugOptions.pdu)
++		fprintf(stderr, "%s: PM_ERR_IPC: inst[%d] ip past pdu_end\n",
++		    __FUNCTION__, i);
++	    sts = PM_ERR_IPC;
++	    goto badsts;
++	}
+ 	if (sizeof(instlist_t) - sizeof(ip->name) > (size_t)(pdu_end - (char *)ip)) {
+ 	    if (pmDebugOptions.pdu) {
+ 		fprintf(stderr, "__pmDecodeInstance: PM_ERR_IPC: sizeof(instlist_t) %d - sizeof(name) %d > remainder %d\n",

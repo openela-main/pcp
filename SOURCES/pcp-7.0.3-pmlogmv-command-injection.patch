@@ -1,0 +1,544 @@
+From dc73ec0f57 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] pmlogmv: fix command injection in pmlogcp/pmlogmv (CWE-78)
+
+The do_link() function used system("cp src dst") to copy archive files
+when link() fails with EXDEV.  The source filename was not validated by
+check_name() and was embedded directly into the shell command, enabling
+command injection via crafted archive filenames.  The do_checksum()
+function similarly used system() for command detection and popen() for
+checksum execution.
+
+Fix:
+- Replace system("cp ...") with copy_file() using open/read/write
+  syscalls directly, eliminating shell involvement entirely
+- Replace system("if which ...") checksum detection with access() checks
+- Replace popen("md5sum <file") with __pmProcessPipe() which uses
+  execvp() internally, passing filenames as argv not shell words
+- Expand check_name() blocklist to include backtick, braces, backslash,
+  bang, newline and tab (defense-in-depth, no longer the security
+  boundary)
+- Apply check_name() to source names as well as destination names
+- Add qa/2102 verifying metacharacter rejection and normal copy
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/qa/2102 b/qa/2102
+--- a/qa/2102
++++ b/qa/2102
+@@ -0,0 +1,67 @@
++#!/bin/sh
++# PCP QA Test No. 2102
++# Verify pmlogcp/pmlogmv reject shell metacharacters in filenames
++# and that normal copy/move operations still work (CWE-78 fix)
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter()
++{
++    sed \
++	-e "s,$tmp,TMP,g" \
++	-e "s/pmlogcp/TOOL/" \
++	-e "s/pmlogmv/TOOL/" \
++    # end
++}
++
++# real QA test starts here
++
++echo "=== normal pmlogcp should succeed ==="
++pmlogcp tmparch/foo $tmp.copy1 2>&1 | _filter
++if [ -f $tmp.copy1.meta ] || [ -f $tmp.copy1.0 ]; then
++    echo "copy succeeded"
++else
++    echo "FAIL: copy did not create files"
++fi
++
++echo
++echo "=== pmlogcp with backtick in destination should be rejected ==="
++pmlogcp tmparch/foo "$tmp.bad\`id\`" >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++echo
++echo "=== pmlogcp with semicolon in destination should be rejected ==="
++pmlogcp tmparch/foo "$tmp.bad;id" >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++echo
++echo "=== pmlogcp with dollar in destination should be rejected ==="
++pmlogcp tmparch/foo '$tmp.bad${IFS}' >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++# success, all done
++exit
+diff --git a/qa/2102.out b/qa/2102.out
+--- a/qa/2102.out
++++ b/qa/2102.out
+@@ -0,0 +1,15 @@
++QA output created by 2102
++=== normal pmlogcp should succeed ===
++copy succeeded
++
++=== pmlogcp with backtick in destination should be rejected ===
++TOOL: name (TMP.bad`id`) unsafe [shell metacharacter '`']
++exit status: 1
++
++=== pmlogcp with semicolon in destination should be rejected ===
++TOOL: name (TMP.bad;id) unsafe [shell metacharacter ';']
++exit status: 1
++
++=== pmlogcp with dollar in destination should be rejected ===
++TOOL: name ($tmp.bad${IFS}) unsafe [shell metacharacter '$']
++exit status: 1
+diff --git a/qa/group b/qa/group
+--- a/qa/group
++++ b/qa/group
+@@ -2305,5 +2305,6 @@
+ 2106 pmproxy local security
+ 2104 libpcp local security
+ 2101 pmda.sockets local security
++2102 pmlogmv local security
+ 4751 libpcp threads valgrind local pcp helgrind
+ 9000 other local
+diff --git a/src/pmlogmv/pmlogmv.c b/src/pmlogmv/pmlogmv.c
+--- a/src/pmlogmv/pmlogmv.c
++++ b/src/pmlogmv/pmlogmv.c
+@@ -13,8 +13,9 @@
+  */
+ 
+ /*
+- * pmlogmv - move/rename PCP archives
+- * pmlogcp - copy PCP archives
++ * pmlogmv - move/rename a PCP archive
++ * pmlogcp - copy a PCP archive
++ * pmlogls - list files in a PCP archive
+  */
+ 
+ #include <unistd.h>
+@@ -28,7 +29,10 @@
+ 
+ static int myoverrides(int, pmOptions *);
+ 
+-static pmLongOptions longopts[] = {
++/*
++ * options for pmlogmv|pmlogcp
++ */
++static pmLongOptions longopts_mvcp[] = {
+     PMAPI_OPTIONS_HEADER("Options"),
+     PMOPT_DEBUG,
+     { "checksum", 0, 'c', 0, "checksum all source and destintion files when copying" },
+@@ -39,18 +43,39 @@
+     PMAPI_OPTIONS_END
+ };
+ 
+-static pmOptions opts = {
++static pmOptions opts_mvcp = {
+     .short_options = "cD:fNV?",
+-    .long_options = longopts,
++    .long_options = longopts_mvcp,
+     .short_usage = "[options] srcname dstname",
+     .override = myoverrides
+ };
+ 
++/*
++ * options for pmlogls
++ */
++static pmLongOptions longopts_ls[] = {
++    PMAPI_OPTIONS_HEADER("Options"),
++    PMOPT_DEBUG,
++    { "verbose", 0, 'V', 0, "increase diagnostic verbosity" },
++    PMOPT_HELP,
++    PMAPI_OPTIONS_END
++};
++
++static pmOptions opts_ls = {
++    .short_options = "D:V?",
++    .long_options = longopts_ls,
++    .short_usage = "[options] srcname",
++    .override = myoverrides
++};
++
++static pmOptions *opts;
++
+ static char	*progname;
+ 
++static int	mode;		/* MV, CP or LS depending on argv[0] */
+ #define MV 1
+ #define CP 2
+-static int	mode;		/* MV or CP depending on argv[0] */
++#define LS 3
+ 
+ static int	showme = 0;
+ static int	verbose = 0;
+@@ -78,15 +103,22 @@
+     return 0;
+ }
+ 
++/*
++ * Defense-in-depth: reject filenames containing shell metacharacters.
++ * The copy and checksum paths no longer use system()/popen() so these
++ * characters are not directly dangerous, but archive names containing
++ * them are almost certainly bogus and this guards against future code
++ * paths that might reintroduce shell interpretation.
++ */
+ static int
+ check_name(char *name)
+ {
+-    char	*meta = " $?*[(|;&<>";
++    char	*meta = " $?*[(|;&<>`{}\\!\n\t";
+     char	*p;
+ 
+     for (p = meta; *p; p++) {
+ 	if (strchr(name, *p) != NULL) {
+-	    fprintf(stderr, "%s: dstname (%s) unsafe [shell metacharacter '%c']\n", progname, name, *p);
++	    fprintf(stderr, "%s: name (%s) unsafe [shell metacharacter '%c']\n", progname, name, *p);
+ 	    return -1;
+ 	}
+     }
+@@ -152,7 +184,6 @@
+ void
+ do_checksum(const char *file, char *sum)
+ {
+-    char	cmd[2*MAXPATHLEN+20];
+     static char	*executable = NULL;
+     FILE	*fp;
+     static int	trunc_warn = 0;
+@@ -163,43 +194,49 @@
+ 	 * prefer md5sum, then sha256sum, then sha1sum, then sum,
+ 	 * else do nothing
+ 	 */
+-	snprintf(cmd, sizeof(cmd), "if which md5sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-	if (system(cmd) == 0)
+-	    executable = "md5sum";
+-	else {
+-	    snprintf(cmd, sizeof(cmd), "if which sha256sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-	    if (system(cmd) == 0)
+-		executable = "sha256sum";
+-	    else {
+-		snprintf(cmd, sizeof(cmd), "if which sha1sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-		if (system(cmd) == 0)
+-		    executable = "sha1sum";
+-		else {
+-		    snprintf(cmd, sizeof(cmd), "if which sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-		    if (system(cmd) == 0)
+-			executable = "sum";
+-		    else {
+-			executable = "none";
+-			fprintf(stderr, "%s: warning: no checksum command found, checksums skipped\n", progname);
+-		    }
+-		}
++	static const char *candidates[] = {
++	    "md5sum", "sha256sum", "sha1sum", "sum", NULL
++	};
++	const char	**cp;
++	char		path[MAXPATHLEN];
++
++	executable = "none";
++	for (cp = candidates; *cp != NULL; cp++) {
++	    snprintf(path, sizeof(path), "/usr/bin/%s", *cp);
++	    if (access(path, X_OK) == 0) {
++		executable = (char *)*cp;
++		break;
++	    }
++	    snprintf(path, sizeof(path), "/usr/sbin/%s", *cp);
++	    if (access(path, X_OK) == 0) {
++		executable = (char *)*cp;
++		break;
+ 	    }
+ 	}
++	if (strcmp(executable, "none") == 0)
++	    fprintf(stderr, "%s: warning: no checksum command found, checksums skipped\n", progname);
+ 	if (verbose && strcmp(executable, "none") != 0)
+ 	    printf("checksum cmd: %s\n", executable);
+     }
+     sum[0] = '\0';
+     if (strcmp(executable, "none") == 0)
+ 	return;
+-    snprintf(cmd, sizeof(cmd), "%s <%s", executable, file);
+-    if ((fp = popen(cmd, "r")) == NULL) {
+-	/*
+-	 * abandon checksuming ...
+-	 */
+-	fprintf(stderr, "%s: pipe(\"%s\") failed: %s\n", progname, cmd, strerror(errno));
+-	executable = "none";
++    {
++	__pmExecCtl_t	*argp = NULL;
++	int		sts;
++
++	if ((sts = __pmProcessAddArg(&argp, executable)) < 0 ||
++	    (sts = __pmProcessAddArg(&argp, file)) < 0) {
++	    executable = "none";
++	    return;
++	}
++	if ((sts = __pmProcessPipe(&argp, "r", PM_EXEC_TOSS_NONE, &fp)) < 0) {
++	    fprintf(stderr, "%s: __pmProcessPipe(\"%s\") failed: %s\n", progname, executable, pmErrStr(sts));
++	    executable = "none";
++	    return;
++	}
+     }
+-    else {
++    {
+ 	char	*p = sum;
+ 	int	c;
+ 	while ((c = fgetc(fp)) != EOF) {
+@@ -208,9 +245,6 @@
+ 		break;
+ 	    }
+ 	    if (p >= &sum[MAX_CHECKSUM]) {
+-		/*
+-		 * avoid buffer overrun, report only once unless -V
+-		 */
+ 		if (trunc_warn++ == 0 || verbose)
+ 		    fprintf(stderr, "%s: warning: checksum truncated after %d characters\n", progname, MAX_CHECKSUM);
+ 		*p = '\0';
+@@ -218,12 +252,55 @@
+ 	    }
+ 	    *p++ = c;
+ 	}
+-	pclose(fp);
++	__pmProcessPipeClose(fp);
++    }
++}
++
++/*
++ * copy a file using read/write - no shell involvement
++ */
++static int
++copy_file(const char *src, const char *dst)
++{
++    int		sfd, dfd;
++    struct stat	sbuf;
++    ssize_t	nread, nwritten;
++    char	buf[BUFSIZ];
++
++    if ((sfd = open(src, O_RDONLY)) < 0)
++	return -1;
++    if (fstat(sfd, &sbuf) < 0) {
++	close(sfd);
++	return -1;
++    }
++    if ((dfd = open(dst, O_WRONLY|O_CREAT|O_EXCL, sbuf.st_mode & 0777)) < 0) {
++	close(sfd);
++	return -1;
++    }
++    while ((nread = read(sfd, buf, sizeof(buf))) > 0) {
++	char	*p = buf;
++	while (nread > 0) {
++	    nwritten = write(dfd, p, nread);
++	    if (nwritten < 0) {
++		close(sfd);
++		close(dfd);
++		unlink(dst);
++		return -1;
++	    }
++	    nread -= nwritten;
++	    p += nwritten;
++	}
++    }
++    close(sfd);
++    if (nread < 0 || close(dfd) < 0) {
++	unlink(dst);
++	return -1;
+     }
++    return 0;
+ }
+ 
+ /*
+- * make link or copy for one physical file
++ * make link or make copy or list for one physical file
+  * return codes:
+  * 1: ok
+  * 0: source file not found
+@@ -250,6 +327,10 @@
+ 	}
+ 	if (access(src, F_OK) == 0) {
+ 	    /* src exists ... off to the races */
++	    if (mode == LS) {
++		printf("%s\n", src);
++		return 1;
++	    }
+ 	    switch (vol) {
+ 		case PM_LOG_VOL_TI:
+ 			snprintf(dst, sizeof(src), "%s.index%s", dstname, *suff);
+@@ -279,7 +360,6 @@
+ #endif
+ 			/* pmlogcp or link() failed cross-device, need to copy ... */
+ 			int		sts;
+-			char		cmd[2*MAXPATHLEN+60];
+ 			char		sum_src[MAX_CHECKSUM+1];
+ 			char		sum_dst[MAX_CHECKSUM+1];
+ 			if (checksum) {
+@@ -292,8 +372,7 @@
+ 				printf("source checksum: %s\n", sum_src);
+ 			}
+ 
+-			snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
+-			if ((sts = system(cmd)) != 0) {
++			if ((sts = copy_file(src, dst)) != 0) {
+ 			    fprintf(stderr, "%s: copy %s -> %s failed: %s\n", progname, src, dst, strerror(errno));
+ 			    return -1;
+ 			}
+@@ -389,6 +468,9 @@
+ {
+     int		i;
+ 
++    if (mode == LS)
++	exit(0);
++
+     if (sig != 0) {
+ 	fprintf(stderr, "Caught signal %d\n", sig);
+ 	verbose = 1;
+@@ -440,19 +522,27 @@
+     pmSetProgname(argv[0]);
+     progname = pmGetProgname();
+ 
+-    if (strcmp(progname, "pmlogmv") == 0)
++    if (strcmp(progname, "pmlogmv") == 0) {
+ 	mode = MV;
+-    else if (strcmp(progname, "pmlogcp") == 0)
++	opts = &opts_mvcp;
++    }
++    else if (strcmp(progname, "pmlogcp") == 0) {
+ 	mode = CP;
++	opts = &opts_mvcp;
++    }
++    else if (strcmp(progname, "pmlogls") == 0) {
++	mode = LS;
++	opts = &opts_ls;
++    }
+     else {
+-	fprintf(stderr, "%s: Arrgh, not pmlogmv nor pmlogcp so I don't know who I am!\n", progname);
++	fprintf(stderr, "%s: Arrgh, not pmlogmv nor pmlogcp nor pmlogls so I don't know who I am!\n", progname);
+ 	return(1);
+     }
+ 
+     setlinebuf(stdout);
+     setlinebuf(stderr);
+ 
+-    while ((c = pmGetOptions(argc, argv, &opts)) != EOF) {
++    while ((c = pmGetOptions(argc, argv, opts)) != EOF) {
+ 	switch (c) {
+ 
+ 	case 'c':	/* checksum if copying */
+@@ -473,24 +563,27 @@
+ 
+ 	case '?':
+ 	default:
+-	    opts.errors++;
++	    opts->errors++;
+ 	    break;
+ 	}
+     }
+ 
+-    if (opts.errors || opts.optind != argc-2) {
+-	pmUsageMessage(&opts);
++    if (opts->errors ||
++	(mode != LS && opts->optind != argc-2) ||
++	(mode == LS && opts->optind != argc-1)) {
++	pmUsageMessage(opts);
+ 	exit(1);
+     }
+ 
+-    srcname = strdup(argv[opts.optind]);
++    srcname = strdup(argv[opts->optind]);
+     if (srcname == NULL) {
+ 	fprintf(stderr, "%s: malloc(srcname) failed!\n", progname);
+ 	exit(1);
+     }
+ 
+     if ((sts = pmNewContext(PM_CONTEXT_ARCHIVE, srcname)) < 0) {
+-	fprintf(stderr, "%s: Cannot open archive \"%s\": %s\n", progname, srcname, pmErrStr(sts));
++	if (mode != LS || verbose)
++	    fprintf(stderr, "%s: Cannot open archive \"%s\": %s\n", progname, srcname, pmErrStr(sts));
+ 	exit(1);
+     }
+     if ((ctxp = __pmHandleToPtr(sts)) == NULL) {
+@@ -499,25 +592,35 @@
+     }
+     srcname = ctxp->c_archctl->ac_log->name;
+ 
+-    opts.optind++;
+-    /*
+-     * default is that dstname is really the basename for the
+-     * destination archive
+-     */
+-    snprintf(dstname, sizeof(dstname), "%s", argv[opts.optind]);
+-    sb.st_mode = 0;
+-    if (stat(argv[opts.optind], &sb) == 0 && S_ISDIR(sb.st_mode)) {
+-	/* 
+-	 * dstname is an existing directory ... append
+-	 * basename of srcname
+-	 */
+-	snprintf(dstname, sizeof(dstname), "%s%c%s",
+-	    argv[opts.optind], pmPathSeparator(), basename(srcname));
+-    }
++    /* strip a leading "./" from the libpcp name */
++    if (strncmp(srcname, "./", 2) == 0)
++	srcname += 2;
+ 
+-    if (!force && check_name(dstname) < 0) {
+-	/* error reported in check_name() */
+-	exit(1);
++    if (mode != LS) {
++	opts->optind++;
++	/*
++	 * default is that dstname is really the basename for the
++	 * destination archive
++	 */
++	snprintf(dstname, sizeof(dstname), "%s", argv[opts->optind]);
++	sb.st_mode = 0;
++	if (stat(argv[opts->optind], &sb) == 0 && S_ISDIR(sb.st_mode)) {
++	    /* 
++	     * dstname is an existing directory ... append
++	     * basename of srcname
++	     */
++	    snprintf(dstname, sizeof(dstname), "%s%c%s",
++		argv[opts->optind], pmPathSeparator(), basename(srcname));
++	}
++
++	if (!force && check_name(dstname) < 0) {
++	    /* error reported in check_name() */
++	    exit(1);
++	}
++	if (!force && check_name(srcname) < 0) {
++	    /* error reported in check_name() */
++	    exit(1);
++	}
+     }
+ 
+     if (setup_sufftab() < 0) {
+@@ -556,6 +659,7 @@
+ 	do_unlink(0, srcname, PM_LOG_VOL_TI);
+ 	do_unlink(0, srcname, PM_LOG_VOL_META);
+     }
++
+     return 0;
+ 
+ /* fatal error once we're started ... remove any dstname files */

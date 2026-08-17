@@ -1,0 +1,287 @@
+From f86c0f4cda Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] libpcp, libpcp_web: validate timezone and zoneinfo strings
+
+The timezone and zoneinfo fields from archive labels and PDU_LOG_STATUS
+are used via pmNewZone() -> setenv("TZ", ...), causing glibc to resolve
+Olson timezone paths against /usr/share/zoneinfo/.  A crafted value
+like "../../etc/passwd" would cause glibc to open arbitrary files.
+
+Fix at two layers:
+- Front door: add check_tz() check in pmLogGroupLabel() alongside the
+  existing check_hostname() check, rejecting unsafe timezone/zoneinfo
+  before any data is written to disk
+- Consumption: add check_tz() check in pmNewZone() as defense-in-depth,
+  protecting against malicious archives created by other means
+
+The allowlist permits alphanumeric characters plus /_+-.:" which covers
+both Olson paths (America/New_York) and POSIX TZ strings (EST5EDT).
+Leading slashes and ".." path components are rejected.
+
+Add qa/src/check_tz.c and qa/2107 exercising pmNewZone() with valid
+and malicious timezone strings.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+---
+diff --git a/qa/2107 b/qa/2107
+--- a/qa/2107
++++ b/qa/2107
+@@ -0,0 +1,60 @@
++#!/bin/sh
++# PCP QA Test No. 2107
++# Verify pmNewZone rejects unsafe timezone strings containing
++# path traversal or invalid characters
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++# real QA test starts here
++
++echo "=== valid Olson timezone ==="
++src/check_tz "America/New_York"
++
++echo
++echo "=== valid POSIX timezone ==="
++src/check_tz "EST5EDT"
++
++echo
++echo "=== valid simple timezone ==="
++src/check_tz "UTC"
++
++echo
++echo "=== path traversal should be rejected ==="
++src/check_tz "../../etc/passwd"
++
++echo
++echo "=== leading slash should be rejected ==="
++src/check_tz "/etc/localtime"
++
++echo
++echo "=== semicolon should be rejected ==="
++src/check_tz "UTC;id"
++
++echo
++echo "=== backtick should be rejected ==="
++src/check_tz 'UTC`id`'
++
++echo
++echo "=== empty string should be accepted ==="
++src/check_tz ""
++
++# success, all done
++exit
+diff --git a/qa/2107.out b/qa/2107.out
+--- a/qa/2107.out
++++ b/qa/2107.out
+@@ -0,0 +1,24 @@
++QA output created by 2107
++=== valid Olson timezone ===
++pmNewZone("America/New_York") -> 0 (accepted)
++
++=== valid POSIX timezone ===
++pmNewZone("EST5EDT") -> 0 (accepted)
++
++=== valid simple timezone ===
++pmNewZone("UTC") -> 0 (accepted)
++
++=== path traversal should be rejected ===
++pmNewZone("../../etc/passwd") -> Invalid argument (rejected)
++
++=== leading slash should be rejected ===
++pmNewZone("/etc/localtime") -> Invalid argument (rejected)
++
++=== semicolon should be rejected ===
++pmNewZone("UTC;id") -> Invalid argument (rejected)
++
++=== backtick should be rejected ===
++pmNewZone("UTC`id`") -> Invalid argument (rejected)
++
++=== empty string should be accepted ===
++pmNewZone("") - skipped (empty string)
+diff --git a/qa/group b/qa/group
+--- a/qa/group
++++ b/qa/group
+@@ -2307,5 +2307,6 @@
+ 2101 pmda.sockets local security
+ 2102 pmlogmv local security
+ 2103 pmieconf local security
++2107 libpcp local security
+ 4751 libpcp threads valgrind local pcp helgrind
+ 9000 other local
+diff --git a/qa/src/check_tz.c b/qa/src/check_tz.c
+--- a/qa/src/check_tz.c
++++ b/qa/src/check_tz.c
+@@ -0,0 +1,31 @@
++/*
++ * Verify pmNewZone accepts/rejects timezone strings correctly.
++ */
++
++#include <pcp/pmapi.h>
++
++int
++main(int argc, char **argv)
++{
++    int		sts;
++
++    pmSetProgname(argv[0]);
++
++    if (argc != 2) {
++	fprintf(stderr, "Usage: %s timezone\n", pmGetProgname());
++	return 1;
++    }
++
++    if (argv[1][0] == '\0') {
++	printf("pmNewZone(\"\") - skipped (empty string)\n");
++	return 0;
++    }
++
++    sts = pmNewZone(argv[1]);
++    if (sts >= 0)
++	printf("pmNewZone(\"%s\") -> %d (accepted)\n", argv[1], sts);
++    else
++	printf("pmNewZone(\"%s\") -> %s (rejected)\n", argv[1], pmErrStr(sts));
++
++    return 0;
++}
+diff --git a/qa/src/GNUlocaldefs b/qa/src/GNUlocaldefs
+--- a/qa/src/GNUlocaldefs
++++ b/qa/src/GNUlocaldefs
+@@ -56,7 +56,7 @@
+ 	throttle.c throttle_timeout.c y2038.c bigpmcdpmids.c pdu-gadget.c \
+ 	strnfoo.c mmv_ondisk.c newcontext.c api_abi.c interp_bug3.c \
+ 	pmsetmode.c scanindex.c localtime.c httpcache.c unregister.c \
+-	check_cloexec.c
++	check_cloexec.c check_tz.c
+ 
+ ifeq ($(shell test -f ../localconfig && echo 1), 1)
+ include ../localconfig
+@@ -642,6 +642,11 @@
+ 	rm -f $@
+ 	$(CCF) $(CDEFS) -o $@ $@.c $(LDLIBS)
+ 	$(LINKER_MAKERULE)
++
++check_tz:	check_tz.c
++	rm -f $@
++	$(CCF) $(CDEFS) -o $@ $@.c $(LDLIBS)
++	$(LINKER_MAKERULE)
+ 
+ check_import:	check_import.c
+ 	rm -f $@
+diff --git a/src/libpcp/src/tz.c b/src/libpcp/src/tz.c
+--- a/src/libpcp/src/tz.c
++++ b/src/libpcp/src/tz.c
+@@ -25,6 +25,7 @@
+  * lock initialization in pmNewContext().
+  */
+ 
++#include <ctype.h>
+ #include "pmapi.h"
+ #include "libpcp.h"
+ #include "sha256.h"
+@@ -570,6 +571,22 @@
+     return 0;
+ }
+ 
++static int
++valid_tz(const char *tz)
++{
++    const char	*p;
++
++    if (tz == NULL || tz[0] == '\0' || tz[0] == '/')
++	return 0;
++    for (p = tz; *p; p++) {
++	if (!isalnum((unsigned char)*p) && strchr("/_+-.:,\"'", *p) == NULL)
++	    return 0;
++    }
++    if (strstr(tz, "..") != NULL)
++	return 0;
++    return 1;
++}
++
+ int
+ pmNewZone(const char *tz)
+ {
+@@ -577,6 +594,13 @@
+     int		hack = 0;
+     int		sts;
+ 
++    if (!valid_tz(tz)) {
++	if (pmDebugOptions.context)
++	    fprintf(stderr, "%s: rejecting unsafe timezone: %s\n",
++		__FUNCTION__, tz ? tz : "(null)");
++	return -EINVAL;
++    }
++
+     PM_LOCK(__pmLock_extcall);
+ 
+     len = (int)strlen(tz);
+diff --git a/src/libpcp_web/src/loggroup.c b/src/libpcp_web/src/loggroup.c
+--- a/src/libpcp_web/src/loggroup.c
++++ b/src/libpcp_web/src/loggroup.c
+@@ -598,6 +598,30 @@
+     return 1;
+ }
+ 
++/*
++ * Check that timezone/zoneinfo strings (similarly can arrive from a
++ * remote host), conform to simple validity checks; for timezone the
++ * string will be placed into the environment (TZ), but for zoneinfo
++ * file system path lookup will occur when accessing Olsen database.
++ */
++static int
++check_tz(const char *tz)
++{
++    const char	*p;
++
++    if (tz == NULL || tz[0] == '\0')
++	return 1;	/* empty/NULL timezone is valid (use system default) */
++    if (tz[0] == '/')
++	return 0;
++    for (p = tz; *p; p++) {
++	if (!isalnum((unsigned char)*p) && strchr("/_+-.:,", *p) == NULL)
++	    return 0;
++    }
++    if (strstr(tz, "..") != NULL)
++	return 0;
++    return 1;
++}
++
+ int
+ pmLogGroupLabel(pmLogGroupSettings *sp, const char *content, size_t length,
+ 		dict *params, void *arg)
+@@ -633,6 +657,18 @@
+ 	sts = -EINVAL;
+ 	goto fail;
+     }
++    if (!check_tz(loglabel.timezone)) {
++	pmNotifyErr(LOG_ERR, "Rejecting archive with unsafe timezone: %s",
++		loglabel.timezone ? loglabel.timezone : "(null)");
++	sts = -EINVAL;
++	goto fail;
++    }
++    if (!check_tz(loglabel.zoneinfo)) {
++	pmNotifyErr(LOG_ERR, "Rejecting archive with unsafe zoneinfo: %s",
++		loglabel.zoneinfo ? loglabel.zoneinfo : "(null)");
++	sts = -EINVAL;
++	goto fail;
++    }
+ 
+     start = (time_t)loglabel.start.sec;
+     if (localtime_r(&start, &tm) == NULL ||
