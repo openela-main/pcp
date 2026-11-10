@@ -1,38 +1,81 @@
 Name:    pcp
-Version: 7.0.3
-Release: 5%{?dist}
+Version: 7.1.5
+Release: 6%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
 
-Source0: https://github.com/performancecopilot/pcp/releases/pcp-%{version}.src.tar.gz
-Source1: pdu-getpdu-overflow
-Patch0: pcp2openmetrics-archive.patch
-Patch1: pcp-RHEL-132402.patch
-Patch2: pcp-7.0.3-CVE-2026-16529.patch
-Patch3: pcp-7.0.3-CVE-2026-16527.patch
-Patch4: pcp-7.0.3-CVE-2026-16526.patch
-Patch5: pcp-7.0.3-CVE-2026-16524.patch
-Patch6: pcp-7.0.3-CVE-2026-16530.patch
-Patch7: pcp-7.0.3-CVE-2026-16531.patch
-Patch8: pcp-7.0.3-pmlogmv-command-injection.patch
-Patch9: pcp-7.0.3-pmieconf-command-injection.patch
-Patch10: pcp-7.0.3-OOB-pmDecodeInstance.patch
-Patch11: pcp-7.0.3-OOB-pmDecodeLabel.patch
-Patch12: pcp-7.0.3-OOB-pmDecodeLogStatus.patch
-Patch13: pcp-7.0.3-OOB-pmDiscoverDecodeMetaInDom.patch
-Patch14: pcp-7.0.3-OOB-pmLogLoadLabelSet.patch
-Patch15: pcp-7.0.3-pducrash-oob-tests.patch
-Patch16: pcp-7.0.3-pmdaroot-peer-credentials.patch
-Patch17: pcp-7.0.3-timezone-zoneinfo-validation.patch
-Patch18: pcp-7.0.3-pmproxy-rest-certreqd.patch
-Patch19: pcp-7.0.3-pmproxy-logger-auth.patch
-Patch20: pcp-7.0.3-pmproxy-logger-meta-network.patch
-Patch21: pcp-7.0.3-scanmeta-LogLoadInDom-caller.patch
-
+Source0: https://github.com/performancecopilot/pcp/archive/%{version}/pcp-%{version}.tar.gz
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
 %endif
+
+# https://github.com/performancecopilot/pcp/commit/ec81e2b35c7dc19a69406d2712d1b9904ac22112
+# https://github.com/performancecopilot/pcp/commit/b72da5135df7fb08ca432db1e2db24478f43aea2
+# https://github.com/performancecopilot/pcp/commit/edfd909edac8ad4762aa150e330f92211df98c1c
+Patch0: pcp-7.1.5-CVE-2026-16530.patch
+
+# https://issues.redhat.com/browse/RHEL-213756
+# https://github.com/performancecopilot/pcp/commit/dd6ed05f143f97e00198cb4b0180c6375d758cbe
+Patch1: pcp-7.1.5-CVE-2026-16531.patch
+
+# https://issues.redhat.com/browse/RHEL-213726
+# https://github.com/performancecopilot/pcp/commit/ef848fb978d26335f9676933f541c73b58f130a6
+Patch2: pcp-7.1.5-CVE-2026-16529.patch
+
+# https://issues.redhat.com/browse/RHEL-213717
+# https://github.com/performancecopilot/pcp/commit/d96ba5a716eeff7840138eb08fbab0d11a57f641
+Patch3: pcp-7.1.5-CVE-2026-16527.patch
+
+# https://issues.redhat.com/browse/RHEL-213692
+# https://github.com/performancecopilot/pcp/commit/7e27614006ff6fc4925991edbedaf1eab6b14731
+Patch4: pcp-7.1.5-CVE-2026-16526.patch
+
+# https://issues.redhat.com/browse/RHEL-213661
+# https://github.com/performancecopilot/pcp/commit/c5cbeceb7d3c2af357c04065cdd911efdc270de0
+Patch5: pcp-7.1.5-CVE-2026-16524.patch
+
+# https://github.com/performancecopilot/pcp/commit/dc73ec0f579028620e408114427d27ad0afd24a8
+Patch6: pcp-7.1.5-pmlogmv-command-injection.patch
+
+# https://github.com/performancecopilot/pcp/commit/cdc9676ab60176476a23f323c145d8d0fc71e165
+Patch7: pcp-7.1.5-pmieconf-command-injection.patch
+
+# https://github.com/performancecopilot/pcp/commit/ccd1bb167934b5e4a60d39bacf25e12e0a2decb4
+Patch8: pcp-7.1.5-OOB-pmLogLoadLabelSet.patch
+
+# https://github.com/performancecopilot/pcp/commit/7f42013d33a6717a45e8f9ac9e7dfcf76ee6384f
+Patch9: pcp-7.1.5-OOB-pmDiscoverDecodeMetaInDom.patch
+
+# https://github.com/performancecopilot/pcp/commit/e512482e7d33aa6c46fbe569d0de7951c0fcec75
+Patch10: pcp-7.1.5-OOB-pmDecodeLabel.patch
+
+# https://github.com/performancecopilot/pcp/commit/5366a546d66c0a085958dd84b08b3e1ca165f7ab
+Patch11: pcp-7.1.5-OOB-pmDecodeLogStatus.patch
+
+# https://github.com/performancecopilot/pcp/commit/b743fc58795bd3667b78e3b0759251fef27a983b
+Patch12: pcp-7.1.5-OOB-pmDecodeInstance.patch
+
+# https://github.com/performancecopilot/pcp/commit/7465d7cbdb2025ea8666b621a03b958f7e15f0dc
+Patch13: pcp-7.1.5-pducrash-oob-tests.patch
+
+# https://github.com/performancecopilot/pcp/commit/f86c0f4cdac8df0b6fb05f60872f6f29bbc96429
+Patch14: pcp-7.1.5-timezone-zoneinfo-validation.patch
+
+# https://github.com/performancecopilot/pcp/commit/2a4bd9f81a3a59fcba4cf726cc615fd51d107054
+Patch15: pcp-7.1.5-pmdaroot-peer-credentials.patch
+
+# https://github.com/performancecopilot/pcp/commit/81a9efe96db6f7764a1a1646b64eb85de5cdaf77
+Patch16: pcp-7.1.5-pmproxy-rest-certreqd.patch
+
+# https://github.com/performancecopilot/pcp/commit/4121ae06f54ab2089adf7270197c774d60dd03c8
+Patch17: pcp-7.1.5-pmproxy-logger-auth.patch
+
+# https://github.com/performancecopilot/pcp/commit/bf898b50ef2c51ac730252a6e0ef112964083aa9
+Patch18: pcp-7.1.5-pmproxy-logger-meta-network.patch
+
+# https://github.com/performancecopilot/pcp/commit/be9ade995083a2732741789199209e2eb01b9fbd
+Patch19: pcp-7.1.5-scanmeta-LogLoadInDom-caller.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -106,18 +149,7 @@ ExcludeArch: %{ix86}
 %global perl_interpreter perl
 %endif
 
-# support for pmdabcc, check bcc.spec for supported architectures of bcc
-%if 0%{?fedora} >= 25 || 0%{?rhel} > 6
-%ifarch x86_64 %{power64} aarch64 s390x riscv64
-%global disable_bcc 0
-%else
-%global disable_bcc 1
-%endif
-%else
-%global disable_bcc 1
-%endif
-
-# support for pmdabpf, check bcc.spec for supported architectures of libbpf-tools
+# pmdabpf, check bcc.spec for supported architectures of libbpf-tools
 %if 0%{?fedora} >= 37 || 0%{?rhel} > 8
 %ifarch x86_64 %{power64} aarch64 s390x riscv64
 %global disable_bpf 0
@@ -128,7 +160,7 @@ ExcludeArch: %{ix86}
 %global disable_bpf 1
 %endif
 
-# support for pmdabpftrace, check bpftrace.spec for supported architectures of bpftrace
+# pmdabpftrace, check bpftrace.spec for supported architectures of bpftrace
 %if 0%{?fedora} >= 30 || 0%{?rhel} > 7
 %ifarch x86_64 %{power64} aarch64 s390x riscv64
 %global disable_bpftrace 0
@@ -261,7 +293,6 @@ Obsoletes: pcp-pmda-nvidia < 3.10.5
 BuildRequires: make
 BuildRequires: gcc gcc-c++
 BuildRequires: procps autoconf bison flex
-BuildRequires: avahi-devel
 BuildRequires: xz-devel
 BuildRequires: zlib-devel
 %if !%{disable_python3}
@@ -389,12 +420,6 @@ Requires: pcp-selinux = %{version}-%{release}
 %global _with_statsd --with-pmdastatsd=no
 %else
 %global _with_statsd --with-pmdastatsd=yes
-%endif
-
-%if %{disable_bcc}
-%global _with_bcc --with-pmdabcc=no
-%else
-%global _with_bcc --with-pmdabcc=yes
 %endif
 
 %if %{disable_bpf}
@@ -1464,23 +1489,6 @@ collecting metrics about the Device Mapper Cache and Thin Client.
 # end pcp-pmda-dm
 
 
-%if !%{disable_bcc}
-#
-# pcp-pmda-bcc
-#
-%package pmda-bcc
-License: Apache-2.0 AND GPL-2.0-or-later
-Summary: Performance Co-Pilot (PCP) metrics from eBPF/BCC modules
-URL: https://pcp.io
-Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
-Requires: python3-bcc
-Requires: python3-pcp
-%description pmda-bcc
-This package contains the PCP Performance Metrics Domain Agent (PMDA) for
-extracting performance metrics from eBPF/BCC Python modules.
-# end pcp-pmda-bcc
-%endif
-
 %if !%{disable_bpf}
 #
 # pcp-pmda-bpf
@@ -1491,6 +1499,7 @@ Summary: Performance Co-Pilot (PCP) metrics from eBPF ELF modules
 URL: https://pcp.io
 Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
 Requires: libbpf
+Obsoletes: pcp-pmda-bcc < 7.1.1
 BuildRequires: libbpf-devel clang llvm
 %description pmda-bpf
 This package contains the PCP Performance Metrics Domain Agent (PMDA) for
@@ -1803,6 +1812,21 @@ Requires: python3-pcp
 This package contains the PCP Performance Metrics Domain Agent (PMDA) for
 collecting statistics for nVidia RDMA over Converged Ethernet (RoCE) devices.
 # end pcp-pmda-rocestat
+%endif
+
+#
+# pcp-pmda-rds
+#
+%package pmda-rds
+License: GPL-2.0-or-later
+Summary: Performance Co-Pilot (PCP) metrics for Reliable Datagram Sockets (RDS) protocol
+URL: https://pcp.io
+Requires: pcp = %{version}-%{release} pcp-libs = %{version}-%{release}
+Requires: python3-pcp
+%description pmda-rds
+This package contains the PCP Performance Metrics Domain Agent (PMDA) for
+collecting statistics for RDS connections.
+# end pcp-pmda-rds
 %endif
 
 %if !%{disable_mongodb}
@@ -2162,9 +2186,6 @@ Requires: pcp-pmda-dm = %{version}-%{release}
 %if !%{disable_bpf}
 Requires: pcp-pmda-bpf = %{version}-%{release}
 %endif
-%if !%{disable_bpftrace}
-Requires: pcp-pmda-bpftrace = %{version}-%{release}
-%endif
 %if !%{disable_python3}
 Requires: pcp-pmda-nfsclient = %{version}-%{release}
 Requires: pcp-pmda-openmetrics = %{version}-%{release}
@@ -2284,7 +2305,6 @@ updated policy package.
 
 %prep
 %autosetup -p1
-install -D -m 644 %{SOURCE1} qa/pdudata/pdu-getpdu-overflow
 
 %build
 # the buildsubdir macro gets defined in %%setup and is apparently only available in the next step (i.e. the %%build step)
@@ -2294,7 +2314,7 @@ install -D -m 644 %{SOURCE1} qa/pdudata/pdu-getpdu-overflow
 _build=`echo %{release} | sed -e 's/\..*$//'`
 sed -i "/PACKAGE_BUILD/s/=[0-9]*/=$_build/" VERSION.pcp
 
-%configure %{?_with_multilib} %{?_with_nondebug} %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bcc} %{?_with_bpf} %{?_with_bpftrace} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker}
+%configure %{?_with_multilib} %{?_with_nondebug} %{?_with_initd} %{?_with_doc} %{?_with_dstat} %{?_with_ib} %{?_with_gfs2} %{?_with_statsd} %{?_with_perfevent} %{?_with_bpf} %{?_with_bpftrace} %{?_with_mongodb} %{?_with_mysql} %{?_with_snmp} %{?_with_nutcracker}
 make %{?_smp_mflags} default_pcp
 
 %install
@@ -2337,14 +2357,6 @@ rm -fr $RPM_BUILD_ROOT/%{_pmdasexecdir}/mssql
 desktop-file-validate $RPM_BUILD_ROOT/%{_datadir}/applications/pmchart.desktop
 %endif
 
-%if 0%{?rhel} || 0%{?fedora}
-# Fedora and RHEL default local only access for pmcd, pmproxy and pmlogger
-if [ "$1" -eq 1 ]
-then
-    sed -i -e '/^# .*_LOCAL=1/s/^# //' $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig/{pmcd,pmproxy,pmlogger}
-fi
-%endif
-
 # default chkconfig off (all RPM platforms)
 for f in $RPM_BUILD_ROOT/%{_initddir}/{pcp,pmcd,pmlogger,pmie,pmproxy}; do
     test -f "$f" || continue
@@ -2358,9 +2370,44 @@ PCP_GUI='pmchart|pmconfirm|pmdumptext|pmmessage|pmquery|pmsnap|pmtime'
 PCP_CONF=$BACKDIR/src/include/pcp.conf
 export PCP_CONF
 . $BACKDIR/src/include/pcp.env
-CFGFILELIST=`ls -1 $BACKDIR/debian/pcp-conf.{install,dirs}`
-LIBFILELIST=`ls -1 $BACKDIR/debian/lib*.{install,dirs} | grep -F -v -- -dev.`
-DEVFILELIST=`ls -1 $BACKDIR/debian/lib*-dev.{install,dirs}`
+CFGFILELIST=''
+for f in `echo $BACKDIR/debian/pcp-conf.{install,dirs}`
+do
+    [ -f "$f" ] && CFGFILELIST="$CFGFILELIST $f"
+done
+LIBFILELIST=''
+for f in `echo $BACKDIR/debian/lib*.{install,dirs}`
+do
+    case "$f"
+    in
+	*-dev.*)
+		# skip libpcp<foo>-dev.{install,dirs} ones, they'll
+		# be collected in $DEVFILELIST
+		;;
+	*)
+		if [ -f "$f" ]
+		then
+		    # fix Debian Multiarch pathname
+		    # usr/lib/*/libpcp... => usr/lib/libpcp...
+		    fix_f=`basename "$f"`.fixed
+		    sed -e 's@usr/lib/[*]/@usr/lib/@' <"$f" >"$fix_f"
+		    LIBFILELIST="$LIBFILELIST $fix_f"
+		fi
+		;;
+    esac
+done
+DEVFILELIST=''
+for f in `echo $BACKDIR/debian/lib*-dev.{install,dirs}`
+do
+    if [ -f "$f" ]
+    then
+	# fix Debian Multiarch pathname
+	# usr/lib/*/libpcp... => usr/lib/libpcp...
+	fix_f=`basename "$f"`.fixed
+	sed -e 's@usr/lib/[*]/@usr/lib/@' <"$f" >"$fix_f"
+	DEVFILELIST="$DEVFILELIST $fix_f"
+    fi
+done
 
 # Package split: pcp{-conf,-libs,-libs-devel,-testsuite,-import-*,-export-*}...
 # The above list is ordered by file selection; files for each package are
@@ -2466,7 +2513,6 @@ basic_manifest | keep '(etc/pcp|pmdas)/activemq(/|$)' >pcp-pmda-activemq-files
 basic_manifest | keep '(etc/pcp|pmdas)/amdgpu(/|$)' >pcp-pmda-amdgpu-files
 basic_manifest | keep '(etc/pcp|pmdas)/apache(/|$)' >pcp-pmda-apache-files
 basic_manifest | keep '(etc/pcp|pmdas)/bash(/|$)' >pcp-pmda-bash-files
-basic_manifest | keep '(etc/pcp|pmdas)/bcc(/|$)' >pcp-pmda-bcc-files
 basic_manifest | keep '(etc/pcp|pmdas)/bind2(/|$)' >pcp-pmda-bind2-files
 basic_manifest | keep '(etc/pcp|pmdas)/bonding(/|$)' >pcp-pmda-bonding-files
 basic_manifest | keep '(etc/pcp|pmdas)/bpf(/|$)' >pcp-pmda-bpf-files
@@ -2520,6 +2566,7 @@ basic_manifest | keep '(etc/pcp|pmdas)/podman(/|$)' >pcp-pmda-podman-files
 basic_manifest | keep '(etc/pcp|pmdas)/postfix(/|$)' >pcp-pmda-postfix-files
 basic_manifest | keep '(etc/pcp|pmdas)/postgresql(/|$)' >pcp-pmda-postgresql-files
 basic_manifest | keep '(etc/pcp|pmdas)/rabbitmq(/|$)' >pcp-pmda-rabbitmq-files
+basic_manifest | keep '(etc/pcp|pmdas)/rds(/|$)' >pcp-pmda-rds-files
 basic_manifest | keep '(etc/pcp|pmdas)/redis(/|$)' >pcp-pmda-redis-files
 basic_manifest | keep '(etc/pcp|pmdas)/resctrl(/|$)|sys-fs-resctrl' >pcp-pmda-resctrl-files
 basic_manifest | keep '(etc/pcp|pmdas)/rocestat(/|$)' >pcp-pmda-rocestat-files
@@ -2546,7 +2593,7 @@ basic_manifest | keep '(etc/pcp|pmdas)/zswap(/|$)' >pcp-pmda-zswap-files
 rm -f packages.list
 for pmda_package in \
     activemq amdgpu apache \
-    bash bcc bind2 bonding bpf bpftrace \
+    bash bind2 bonding bpf bpftrace \
     cifs cisco \
     dbping denki docker dm ds389 ds389log \
     elasticsearch \
@@ -2560,7 +2607,7 @@ for pmda_package in \
     nutcracker nvidia \
     openmetrics opentelemetry openvswitch oracle \
     pdns perfevent podman postfix postgresql \
-    rabbitmq redis resctrl rocestat roomtemp rpm rsyslog \
+    rabbitmq rds redis resctrl rocestat roomtemp rpm rsyslog \
     samba sendmail shping slurm smart snmp \
     sockets statsd summary systemd \
     unbound uwsgi \
@@ -2721,7 +2768,7 @@ needinstall='sample simple'
 for PMDA in $needinstall ; do
     if ! grep -q "$PMDA/pmda$PMDA" "$PCP_PMCDCONF_PATH"
     then
-        %{install_file "$PCP_PMDAS_DIR/$PMDA" .NeedInstall}
+	%{install_file "$PCP_PMDAS_DIR/$PMDA" .NeedInstall}
     fi
 done
 %if 0%{?rhel}
@@ -2897,11 +2944,6 @@ exit 0
 %preun pmda-dm
 %{pmda_remove "$1" "dm"}
 
-%if !%{disable_bcc}
-%preun pmda-bcc
-%{pmda_remove "$1" "bcc"}
-%endif
-
 %if !%{disable_bpf}
 %preun pmda-bpf
 %{pmda_remove "$1" "bpf"}
@@ -2952,6 +2994,9 @@ exit 0
 
 %preun pmda-rocestat
 %{pmda_remove "$1" "rocestat"}
+
+%preun pmda-rds
+%{pmda_remove "$1" "rds"}
 
 %endif
 
@@ -3069,7 +3114,8 @@ done
     for s in pmcd pmlogger pmie; do
         systemctl --quiet is-enabled $s && systemctl --quiet restart $s || true
     done
-%else  # old-school methods follow
+%else
+# old-school methods follow
 %if !%{disable_systemd}
     systemctl restart pmcd pmlogger pmie >/dev/null 2>&1
     systemctl enable pmcd pmlogger pmie >/dev/null 2>&1
@@ -3262,10 +3308,6 @@ fi
 
 %files pmda-dm -f pcp-pmda-dm-files.rpm
 
-%if !%{disable_bcc}
-%files pmda-bcc -f pcp-pmda-bcc-files.rpm
-%endif
-
 %if !%{disable_bpf}
 %files pmda-bpf -f pcp-pmda-bpf-files.rpm
 %endif
@@ -3306,6 +3348,8 @@ fi
 %files pmda-rabbitmq -f pcp-pmda-rabbitmq-files.rpm
 
 %files pmda-rocestat -f pcp-pmda-rocestat-files.rpm
+
+%files pmda-rds -f pcp-pmda-rds-files.rpm
 
 %files pmda-uwsgi -f pcp-pmda-uwsgi-files.rpm
 
@@ -3350,7 +3394,6 @@ fi
 %files pmda-lio -f pcp-pmda-lio-files.rpm
 
 %files pmda-openmetrics -f pcp-pmda-openmetrics-files.rpm
-%endif
 
 %files pmda-opentelemetry -f pcp-pmda-opentelemetry-files.rpm
 %endif
@@ -3447,9 +3490,7 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Fri Aug 14 2026 Jan Kuřík <jkurik@redhat.com> - 7.0.3-5
-- Fix CVE-2026-16530: __pmLogLoadInDom OOB pointer dereference (RHEL-213746)
-- Fix CVE-2026-16531: pmproxy logger servlet path traversal (RHEL-213756)
+* Wed Aug 12 2026 Jan Kuřík <jkurik@redhat.com> - 7.1.5-6
 - Backport remaining PCP security hardening fixes from private-pcp
 - pmieconf and pmlogmv command injection hardening (CWE-78)
 - libpcp PDU decode OOB read and overflow guards (CWE-125/190/195)
@@ -3457,11 +3498,23 @@ fi
 - pmdaroot peer credential verification (CWE-403)
 - pmproxy REST CERT_REQD enforcement and logger servlet authentication
 
-* Fri Aug 14 2026 Jan Kuřík <jkurik@redhat.com> - 7.0.3-4
-- Fix CVE-2026-16524: linux_sockets PMDA command injection (RHEL-213659)
-- Fix CVE-2026-16526: FD_CLOEXEC privilege escalation via pmdaroot (RHEL-213695)
-- Fix CVE-2026-16527: pmproxy unauthenticated /store access (RHEL-213721)
-- Fix CVE-2026-16529: __pmGetPDU signed integer overflow DoS (RHEL-213732)
+* Wed Aug 12 2026 Jan Kuřík <jkurik@redhat.com> - 7.1.5-5
+- Fix CVE-2026-16524: linux_sockets PMDA command injection (RHEL-213661)
+- Fix CVE-2026-16526: FD_CLOEXEC privilege escalation via pmdaroot (RHEL-213692)
+- Fix CVE-2026-16527: pmproxy unauthenticated /store access (RHEL-213717)
+- Fix CVE-2026-16529: __pmGetPDU signed integer overflow DoS (RHEL-213726)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 7.1.5-4
+- Fix CVE-2026-16531: path traversal via hostname in pmproxy (RHEL-213756)
+
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 7.1.5-3
+- Fix arbitrary pointer deref in __pmLogLoadInDom (CVE-2026-16530) (RHEL-213746)
+
+* Wed Jun 17 2026 William Cohen <wcohen@redhat.com> - 7.1.5-2
+- Remove pcp-pmda-bpftrace from pcp zeroconfig requires (RHEL-180384)
+
+* Fri Jun 5 2026 William Cohen <wcohen@redhat.com> - 7.1.5-1
+- Latest upstream release
 
 * Thu Feb 19 2026 William Cohen <wcohen@redhat.com> - 7.0.3-3
 - Update selinux polices for rocestat and nvidia pmdas (RHEL-132402, RHEL-134388, RHEL-133519)

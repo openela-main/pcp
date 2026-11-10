@@ -18,7 +18,9 @@ logger servlet endpoints.
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/qa/2108 b/qa/2108
---- a/qa/2108
+new file mode 100755
+index 0000000000..5e0d75c494
+--- /dev/null
 +++ b/qa/2108
 @@ -0,0 +1,97 @@
 +#!/bin/sh
@@ -119,7 +121,9 @@ diff --git a/qa/2108 b/qa/2108
 +# success, all done
 +exit
 diff --git a/qa/2108.out b/qa/2108.out
---- a/qa/2108.out
+new file mode 100644
+index 0000000000..8321285476
+--- /dev/null
 +++ b/qa/2108.out
 @@ -0,0 +1,7 @@
 +QA output created by 2108
@@ -130,9 +134,10 @@ diff --git a/qa/2108.out b/qa/2108.out
 +=== logger servlet without authenticate (default) ===
 +unauthenticated POST /logger/label: HTTP 400
 diff --git a/qa/group b/qa/group
+index 1103b1f526..bd2a2453d6 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2308,5 +2308,6 @@
+@@ -2379,5 +2379,6 @@ suse
  2102 pmlogmv local security
  2103 pmieconf local security
  2107 libpcp local security
@@ -140,9 +145,10 @@ diff --git a/qa/group b/qa/group
  4751 libpcp threads valgrind local pcp helgrind
  9000 other local
 diff --git a/src/pmproxy/pmproxy.conf b/src/pmproxy/pmproxy.conf
+index 52572ae647..36baa12f52 100644
 --- a/src/pmproxy/pmproxy.conf
 +++ b/src/pmproxy/pmproxy.conf
-@@ -122,6 +122,9 @@
+@@ -122,6 +122,9 @@ stream.maxlen = 8640
  # allow REST API webhook receiving remote pmlogger(1) archive content
  enabled = true
  
@@ -153,9 +159,10 @@ diff --git a/src/pmproxy/pmproxy.conf b/src/pmproxy/pmproxy.conf
  #cached = true
  
 diff --git a/src/pmproxy/src/logger.c b/src/pmproxy/src/logger.c
+index 97c5082273..c5f383d247 100644
 --- a/src/pmproxy/src/logger.c
 +++ b/src/pmproxy/src/logger.c
-@@ -106,6 +106,9 @@
+@@ -106,6 +106,9 @@ on_pmlogger_done(int status, void *arg)
      if (status >= 0) {
  	code = HTTP_STATUS_OK;
  	body = pmlogger_success;
@@ -165,7 +172,7 @@ diff --git a/src/pmproxy/src/logger.c b/src/pmproxy/src/logger.c
      } else {
  	if (status == -EEXIST)
  	    code = HTTP_STATUS_CONFLICT;
-@@ -139,6 +142,8 @@
+@@ -139,6 +142,8 @@ on_pmlogger_info(pmLogLevel level, sds message, void *arg)
      proxylog(level, message, baton->client->proxy);
  }
  
@@ -174,10 +181,10 @@ diff --git a/src/pmproxy/src/logger.c b/src/pmproxy/src/logger.c
  static pmLogGroupSettings pmlogger_settings = {
      .callbacks.on_archive	= on_pmlogger_archive,
      .callbacks.on_done          = on_pmlogger_done,
-@@ -273,6 +278,10 @@
+@@ -273,6 +278,10 @@ pmlogger_request_headers(struct client *client, struct dict *headers)
  {
      if (pmDebugOptions.http)
- 	fprintf(stderr, "logger servlet headers (client=%p)\n", client);
+ 	fprintf(stderr, "logger servlet headers (client=" PRINTF_P_PFX "%p)\n", client);
 +    if (pmlogger_authenticate &&
 +	(!client->u.http.username || !client->u.http.password)) {
 +	client->u.http.parser.status_code = HTTP_STATUS_FORBIDDEN;
@@ -185,7 +192,7 @@ diff --git a/src/pmproxy/src/logger.c b/src/pmproxy/src/logger.c
      return 0;
  }
  
-@@ -378,6 +387,11 @@
+@@ -378,6 +387,11 @@ pmlogger_servlet_setup(struct proxy *proxy)
  {
      mmv_registry_t	*registry = proxymetrics(proxy, METRICS_LOGGROUP);
      mmv_registry_t	*logpaths = proxymetrics(proxy, METRICS_LOGPATHS);

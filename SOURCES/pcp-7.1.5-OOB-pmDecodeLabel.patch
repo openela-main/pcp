@@ -18,9 +18,10 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/libpcp/src/p_label.c b/src/libpcp/src/p_label.c
+index 10a348c8f0..95dbc86455 100644
 --- a/src/libpcp/src/p_label.c
 +++ b/src/libpcp/src/p_label.c
-@@ -446,10 +446,11 @@
+@@ -446,10 +446,11 @@ __pmDecodeLabel(__pmPDU *pdubuf, int *ident, int *type, pmLabelSet **setsp, int
  	}
  
  	/* check JSON content fits within the PDU bounds */
@@ -36,9 +37,10 @@ diff --git a/src/libpcp/src/p_label.c b/src/libpcp/src/p_label.c
  	    goto corrupt;
  	}
 diff --git a/src/libpcp3/src/p_label.c b/src/libpcp3/src/p_label.c
+index 10a348c8f0..95dbc86455 100644
 --- a/src/libpcp3/src/p_label.c
 +++ b/src/libpcp3/src/p_label.c
-@@ -446,10 +446,11 @@
+@@ -446,10 +446,11 @@ __pmDecodeLabel(__pmPDU *pdubuf, int *ident, int *type, pmLabelSet **setsp, int
  	}
  
  	/* check JSON content fits within the PDU bounds */

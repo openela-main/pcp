@@ -23,7 +23,9 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/qa/2103 b/qa/2103
---- a/qa/2103
+new file mode 100755
+index 0000000000..c068ae92f0
+--- /dev/null
 +++ b/qa/2103
 @@ -0,0 +1,62 @@
 +#!/bin/sh
@@ -89,7 +91,9 @@ diff --git a/qa/2103 b/qa/2103
 +# success, all done
 +exit
 diff --git a/qa/2103.out b/qa/2103.out
---- a/qa/2103.out
+new file mode 100644
+index 0000000000..a5054675e2
+--- /dev/null
 +++ b/qa/2103.out
 @@ -0,0 +1,9 @@
 +QA output created by 2103
@@ -102,9 +106,10 @@ diff --git a/qa/2103.out b/qa/2103.out
 +=== verify no injected file from HOME variable ===
 +no command execution from HOME injection
 diff --git a/qa/group b/qa/group
+index e83b623c96..16c5aa35e3 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2306,5 +2306,6 @@
+@@ -2377,5 +2377,6 @@ suse
  2104 libpcp local security
  2101 pmda.sockets local security
  2102 pmlogmv local security
@@ -112,9 +117,10 @@ diff --git a/qa/group b/qa/group
  4751 libpcp threads valgrind local pcp helgrind
  9000 other local
 diff --git a/src/pmieconf/rules.c b/src/pmieconf/rules.c
+index b571c5f4c0..34c701ae8b 100644
 --- a/src/pmieconf/rules.c
 +++ b/src/pmieconf/rules.c
-@@ -1808,7 +1808,6 @@
+@@ -1808,7 +1808,6 @@ write_pmiefile(char *program, int autocreate)
  {
      time_t	now = time(NULL);
      char	*p, *msg = NULL;
@@ -122,7 +128,7 @@ diff --git a/src/pmieconf/rules.c b/src/pmieconf/rules.c
      char	*fname = get_pmiefile();
      FILE	*fp;
      int		i;
-@@ -1819,9 +1818,8 @@
+@@ -1819,9 +1818,8 @@ write_pmiefile(char *program, int autocreate)
  
  	*p = '\0';	/* p is the dirname of fname */
  	if (stat(fname, &sbuf) < 0) {

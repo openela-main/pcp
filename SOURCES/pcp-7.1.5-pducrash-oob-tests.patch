@@ -20,9 +20,10 @@ fixes:
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/qa/513.out b/qa/513.out
+index 7ccaa1f370..6ffe932b39 100644
 --- a/qa/513.out
 +++ b/qa/513.out
-@@ -277,6 +277,14 @@
+@@ -277,6 +277,14 @@ QA output created by 513
    __pmLogLoadInDom: sts = -12373 (Corrupted record in a PCP archive)
  [log_indom] checking out-of-range stridx with acp==NULL
    __pmLogLoadInDom: sts = -12373 (Corrupted record in a PCP archive)
@@ -38,9 +39,10 @@ diff --git a/qa/513.out b/qa/513.out
  Memcheck, a memory error detector
  Command: src/pducrash
 diff --git a/qa/src/pducrash.c b/qa/src/pducrash.c
+index 76e1e0ce76..94a5f72d47 100644
 --- a/qa/src/pducrash.c
 +++ b/qa/src/pducrash.c
-@@ -1703,6 +1703,102 @@
+@@ -1703,6 +1703,102 @@ decode_log_indom(const char *name)
      }
  }
  
@@ -143,7 +145,7 @@ diff --git a/qa/src/pducrash.c b/qa/src/pducrash.c
  typedef void (*decode_t)(const char *);
  
  struct pdu {
-@@ -1738,6 +1834,9 @@
+@@ -1738,6 +1834,9 @@ struct pdu {
      { "desc_ids",	decode_desc_ids },
      { "descs", 		decode_descs },
      { "log_indom",	decode_log_indom },

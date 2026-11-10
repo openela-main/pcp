@@ -11,9 +11,10 @@ Fix involves re-extracting the correct record length and calling
 __pmLogLoadInDom() with rlen != 0.
 ---
 diff --git a/qa/src/scanmeta.c b/qa/src/scanmeta.c
+index aac953ae93..16c879c5fd 100644
 --- a/qa/src/scanmeta.c
 +++ b/qa/src/scanmeta.c
-@@ -143,7 +143,7 @@
+@@ -143,7 +143,7 @@ free_elt_fields(elt_t *ep)
  }
  
  void
@@ -22,7 +23,7 @@ diff --git a/qa/src/scanmeta.c b/qa/src/scanmeta.c
  {
      int				sts;
      static __pmTimestamp	prior_stamp = { 0, 0 };
-@@ -156,7 +156,7 @@
+@@ -156,7 +156,7 @@ do_indom(__int32_t *buf, int type)
      elt_t			*tp;
      elt_t			*dp = &dup;
  
@@ -31,7 +32,7 @@ diff --git a/qa/src/scanmeta.c b/qa/src/scanmeta.c
  	fprintf(stderr, "__pmLoadLoadInDom: failed: %s\n", pmErrStr(sts));
  	return;
      }
-@@ -689,7 +689,7 @@
+@@ -689,7 +689,7 @@ main(int argc, char *argv[])
  	    case TYPE_INDOM_V2:
  		if (!iflag)
  		    break;

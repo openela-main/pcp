@@ -16,9 +16,10 @@ connections are rejected when -Q is set since TLS is unavailable.
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/pmproxy/src/http.c b/src/pmproxy/src/http.c
+index 8da21a41d5..931bce59c1 100644
 --- a/src/pmproxy/src/http.c
 +++ b/src/pmproxy/src/http.c
-@@ -1110,6 +1110,20 @@
+@@ -1129,6 +1129,20 @@ on_headers_complete(http_parser *request)
  	}
      }
  

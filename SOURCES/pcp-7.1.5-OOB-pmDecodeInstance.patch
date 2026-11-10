@@ -21,9 +21,10 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/libpcp/src/p_instance.c b/src/libpcp/src/p_instance.c
+index de05972f14..8c3c125c48 100644
 --- a/src/libpcp/src/p_instance.c
 +++ b/src/libpcp/src/p_instance.c
-@@ -289,6 +289,13 @@
+@@ -289,6 +289,13 @@ __pmDecodeInstance(__pmPDU *pdubuf, pmInResult **result)
      pdu_used = (char *)&pp->rest[0];
      for (i = j = 0; i < res->numinst; i++) {
  	ip = (instlist_t *)&pp->rest[j/sizeof(__pmPDU)];
@@ -38,9 +39,10 @@ diff --git a/src/libpcp/src/p_instance.c b/src/libpcp/src/p_instance.c
  	    if (pmDebugOptions.pdu) {
  		fprintf(stderr, "__pmDecodeInstance: PM_ERR_IPC: sizeof(instlist_t) %d - sizeof(name) %d > remainder %d\n",
 diff --git a/src/libpcp3/src/p_instance.c b/src/libpcp3/src/p_instance.c
+index 6881ff37ef..7d836e75a0 100644
 --- a/src/libpcp3/src/p_instance.c
 +++ b/src/libpcp3/src/p_instance.c
-@@ -290,6 +290,13 @@
+@@ -290,6 +290,13 @@ __pmDecodeInstance(__pmPDU *pdubuf, pmInResult **result)
      pdu_used = (char *)&pp->rest[0];
      for (i = j = 0; i < res->numinst; i++) {
  	ip = (instlist_t *)&pp->rest[j/sizeof(__pmPDU)];

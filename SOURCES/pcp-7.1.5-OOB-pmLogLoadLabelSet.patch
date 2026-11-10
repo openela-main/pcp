@@ -23,9 +23,10 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/libpcp/src/e_labels.c b/src/libpcp/src/e_labels.c
+index 342cb9163d..0e18c72aed 100644
 --- a/src/libpcp/src/e_labels.c
 +++ b/src/libpcp/src/e_labels.c
-@@ -56,6 +56,10 @@
+@@ -56,6 +56,10 @@ typedef struct {
      				/* will be expanded if nsets > 0 */
  } __pmExtLabelSet_v2;
  
@@ -36,7 +37,7 @@ diff --git a/src/libpcp/src/e_labels.c b/src/libpcp/src/e_labels.c
  /*
   * pack a set of labels into a physical metadata record
   * - lcp required to provide archive version
-@@ -210,6 +214,23 @@
+@@ -210,6 +214,23 @@ __pmLogLoadLabelSet(char *tbuf, int rlen, int rtype, __pmTimestamp *stamp,
      *nsetsp = 0;
      *labelsetsp = NULL;
  
@@ -61,9 +62,10 @@ diff --git a/src/libpcp/src/e_labels.c b/src/libpcp/src/e_labels.c
      if (rtype == TYPE_LABEL_V2) {
  	__pmLoadTimeval((__int32_t *)&tbuf[k], stamp);
 diff --git a/src/libpcp3/src/e_labels.c b/src/libpcp3/src/e_labels.c
+index 8e94a112b0..169817266b 100644
 --- a/src/libpcp3/src/e_labels.c
 +++ b/src/libpcp3/src/e_labels.c
-@@ -56,6 +56,10 @@
+@@ -56,6 +56,10 @@ typedef struct {
      				/* will be expanded if nsets > 0 */
  } __pmExtLabelSet_v2;
  
@@ -74,7 +76,7 @@ diff --git a/src/libpcp3/src/e_labels.c b/src/libpcp3/src/e_labels.c
  /*
   * pack a set of labels into a physical metadata record
   * - lcp required to provide archive version
-@@ -215,6 +219,23 @@
+@@ -215,6 +219,23 @@ __pmLogLoadLabelSet(char *tbuf, int rlen, int rtype, __pmTimestamp *stamp,
      *nsetsp = 0;
      *labelsetsp = NULL;
  

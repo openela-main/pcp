@@ -19,9 +19,10 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/libpcp/src/p_lstatus.c b/src/libpcp/src/p_lstatus.c
+index 8cc833e3ea..874d0bc52c 100644
 --- a/src/libpcp/src/p_lstatus.c
 +++ b/src/libpcp/src/p_lstatus.c
-@@ -265,157 +265,157 @@
+@@ -265,157 +265,157 @@ __pmDecodeLogStatus(__pmPDU *pdubuf, __pmLoggerStatus **result)
  	if (len == 0)
  	    lsp->pmcd.hostname = NULL;
  	else {
@@ -244,9 +245,10 @@ diff --git a/src/libpcp/src/p_lstatus.c b/src/libpcp/src/p_lstatus.c
      }
      else if (version == LOG_PDU_VERSION2) {
 diff --git a/src/libpcp3/src/p_lstatus.c b/src/libpcp3/src/p_lstatus.c
+index d9053b5d1a..2bc4037b13 100644
 --- a/src/libpcp3/src/p_lstatus.c
 +++ b/src/libpcp3/src/p_lstatus.c
-@@ -265,157 +265,154 @@
+@@ -265,157 +265,154 @@ __pmDecodeLogStatus(__pmPDU *pdubuf, __pmLoggerStatus **result)
  	if (len == 0)
  	    lsp->pmcd.hostname = NULL;
  	else {

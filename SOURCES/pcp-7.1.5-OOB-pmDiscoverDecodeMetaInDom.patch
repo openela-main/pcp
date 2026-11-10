@@ -20,9 +20,10 @@ Reported-by: Massimiliano Brolli, TIM Security Red Team
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/src/libpcp_web/src/discover.c b/src/libpcp_web/src/discover.c
+index 13781ded6f..6c5a2e9157 100644
 --- a/src/libpcp_web/src/discover.c
 +++ b/src/libpcp_web/src/discover.c
-@@ -2276,6 +2276,11 @@
+@@ -2276,6 +2276,11 @@ pmDiscoverDecodeMetaInDom(__int32_t *buf, int len, int type, __pmTimestamp *tsp,
  	     */
  	    char	**namelist;
  	    int		i;

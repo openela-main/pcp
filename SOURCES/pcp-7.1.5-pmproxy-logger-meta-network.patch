@@ -16,7 +16,9 @@ Verifies pmproxy handles each gracefully and remains responsive.
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
 diff --git a/qa/2109 b/qa/2109
---- a/qa/2109
+new file mode 100755
+index 0000000000..6423286d97
+--- /dev/null
 +++ b/qa/2109
 @@ -0,0 +1,145 @@
 +#!/bin/sh
@@ -165,7 +167,9 @@ diff --git a/qa/2109 b/qa/2109
 +# success, all done
 +exit
 diff --git a/qa/2109.out b/qa/2109.out
---- a/qa/2109.out
+new file mode 100644
+index 0000000000..9918d5f025
+--- /dev/null
 +++ b/qa/2109.out
 @@ -0,0 +1,9 @@
 +QA output created by 2109
