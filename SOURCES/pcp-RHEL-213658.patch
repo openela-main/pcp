@@ -1,11 +1,6 @@
-From 4412004b8bdc2d9e63a4242a30346f41bd784311 Mon Sep 17 00:00:00 2001
+From c5cbeceb7d Mon Sep 17 00:00:00 2001
 From: Nathan Scott <nathans@redhat.com>
-Date: Thu, 2 Jul 2026 15:41:11 +1000
-Subject: [PATCH] linux_sockets pmda: fix command injection via
- network.persocket.filter (CWE-78)
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+Subject: [PATCH] linux_sockets pmda: fix command injection via network.persocket.filter (CWE-78)
 
 The sockets_check_filter() validation helper returns 1 for safe input
 and 0 for unsafe input.  The guard in sockets_store() tested
@@ -28,22 +23,15 @@ Reported-by: Lucas Gabriel Alves, TIM Security Red Team
 Reported-by: Massimiliano Brolli, TIM Security Red Team
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
----
- qa/2101                             | 70 +++++++++++++++++++++++++++++
- qa/2101.out                         | 15 +++++++
- qa/group                            |  1 +
- src/pmdas/linux_sockets/pmda.c      |  8 ++--
- src/pmdas/linux_sockets/ss_stream.c | 53 ++++++++++++++++++----
- 5 files changed, 133 insertions(+), 14 deletions(-)
- create mode 100755 qa/2101
- create mode 100644 qa/2101.out
 
+Resolves: RHEL-213658 CVE-2026-16524
+---
 diff --git a/qa/2101 b/qa/2101
 new file mode 100755
-index 000000000..733b7f70c
+index 0000000000..733b7f70c9
 --- /dev/null
 +++ b/qa/2101
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,69 @@
 +#!/bin/sh
 +# PCP QA Test No. 2101
 +# Verify linux_sockets PMDA filter validation rejects shell metacharacters
@@ -80,7 +68,6 @@ index 000000000..733b7f70c
 +cd $PCP_PMDAS_DIR/sockets
 +$sudo ./Remove >/dev/null 2>&1
 +$sudo ./Install </dev/null >$tmp.out 2>&1
-+cat $tmp.out >>$seq_full
 +
 +# check the PMDA is alive
 +pmprobe -v network.persocket.filter >$tmp.probe 2>&1
@@ -116,7 +103,7 @@ index 000000000..733b7f70c
 +exit
 diff --git a/qa/2101.out b/qa/2101.out
 new file mode 100644
-index 000000000..02f9ac565
+index 0000000000..02f9ac5655
 --- /dev/null
 +++ b/qa/2101.out
 @@ -0,0 +1,15 @@
@@ -136,18 +123,17 @@ index 000000000..02f9ac565
 +=== shell metacharacter dollar should be rejected ===
 +metacharacter rejected
 diff --git a/qa/group b/qa/group
-index a1b2c3d4e..b2c3d4e5f 100644
+index c7db6290b2..0d9ef9ffb6 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2218,5 +2218,6 @@ pmcd.pdu
- 1992 pmda.uwsgi local
+@@ -2219,4 +2219,5 @@ pmcd.pdu
+ 2105 libpcp local security
  2100 pmproxy local security
-+2101 pmda.sockets local security
  2104 libpcp local security
- 2105 libpcp pmcd local security pmcd.pdu
++2101 linux_sockets local security
  4751 libpcp threads valgrind local pcp helgrind
 diff --git a/src/pmdas/linux_sockets/pmda.c b/src/pmdas/linux_sockets/pmda.c
-index 5a3018d8a..59e69a675 100644
+index 5a3018d8aa..59e69a6756 100644
 --- a/src/pmdas/linux_sockets/pmda.c
 +++ b/src/pmdas/linux_sockets/pmda.c
 @@ -162,11 +162,9 @@ sockets_check_filter(const char *string)
@@ -174,7 +160,7 @@ index 5a3018d8a..59e69a675 100644
  			    free(av.cp);
  			    break;
 diff --git a/src/pmdas/linux_sockets/ss_stream.c b/src/pmdas/linux_sockets/ss_stream.c
-index 421c65fd1..833fc275a 100644
+index 421c65fd16..833fc275a0 100644
 --- a/src/pmdas/linux_sockets/ss_stream.c
 +++ b/src/pmdas/linux_sockets/ss_stream.c
 @@ -14,18 +14,19 @@

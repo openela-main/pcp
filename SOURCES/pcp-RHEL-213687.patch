@@ -1,8 +1,6 @@
-From 8d418f7348a51ea8801e4725a78c8f85bcdf2f7d Mon Sep 17 00:00:00 2001
+From 7e27614006 Mon Sep 17 00:00:00 2001
 From: Nathan Scott <nathans@redhat.com>
-Date: Thu, 2 Jul 2026 16:23:26 +1000
-Subject: [PATCH] libpcp, libpcp_pmda: set FD_CLOEXEC on AF_UNIX sockets
- (CWE-403)
+Subject: [PATCH] libpcp, libpcp_pmda: set FD_CLOEXEC on AF_UNIX sockets (CWE-403)
 
 The __pmInitSocket() function returns early for AF_UNIX sockets,
 skipping all subsequent socket hardening including FD_CLOEXEC.
@@ -29,22 +27,12 @@ Reported-by: Lucas Gabriel Alves, TIM Security Red Team
 Reported-by: Massimiliano Brolli, TIM Security Red Team
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
----
- qa/2104                     | 31 ++++++++++++++++++++++++++++++
- qa/2104.out                 |  2 ++
- qa/group                    |  1 +
- qa/src/GNUlocaldefs         | 10 +++++++++-
- qa/src/check_cloexec.c      | 38 +++++++++++++++++++++++++++++++++++++
- src/libpcp/src/auxconnect.c |  6 +++++-
- src/libpcp_pmda/src/root.c  |  5 ++++-
- 7 files changed, 90 insertions(+), 3 deletions(-)
- create mode 100755 qa/2104
- create mode 100644 qa/2104.out
- create mode 100644 qa/src/check_cloexec.c
 
+Resolves: RHEL-213687 CVE-2026-16526
+---
 diff --git a/qa/2104 b/qa/2104
 new file mode 100755
-index 000000000..0b2b0b602
+index 0000000000..0b2b0b602e
 --- /dev/null
 +++ b/qa/2104
 @@ -0,0 +1,31 @@
@@ -81,24 +69,24 @@ index 000000000..0b2b0b602
 +exit
 diff --git a/qa/2104.out b/qa/2104.out
 new file mode 100644
-index 000000000..900a95ec7
+index 0000000000..900a95ec75
 --- /dev/null
 +++ b/qa/2104.out
 @@ -0,0 +1,2 @@
 +QA output created by 2104
 +FD_CLOEXEC is set
 diff --git a/qa/group b/qa/group
-index d4da513ce..e87583d69 100644
+index e538db58e6..c7db6290b2 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2216,4 +2216,5 @@ pmcd.pdu
- 1990 pcp buddyinfo python local
- 1991 pcp netstat python local
+@@ -2218,4 +2218,5 @@ pmcd.pdu
  1992 pmda.uwsgi local
+ 2105 libpcp local security
+ 2100 pmproxy local security
 +2104 libpcp local security
  4751 libpcp threads valgrind local pcp helgrind
 diff --git a/qa/src/GNUlocaldefs b/qa/src/GNUlocaldefs
-index f83826068..53f0d06c6 100644
+index f838260680..6ee74c7f16 100644
 --- a/qa/src/GNUlocaldefs
 +++ b/qa/src/GNUlocaldefs
 @@ -54,7 +54,8 @@ CFILES = disk_test.c exercise.c context_test.c chkoptfetch.c \
@@ -106,8 +94,8 @@ index f83826068..53f0d06c6 100644
  	dumpstack.c usergroup.c derived_help.c ready-or-not.c cleanmapdir.c \
  	throttle.c throttle_timeout.c y2038.c bigpmcdpmids.c pdu-gadget.c \
 -	newcontext.c
-+	newcontext.c check_cloexec.c
-+
++	newcontext.c \
++	check_cloexec.c
  
  ifeq ($(shell test -f ../localconfig && echo 1), 1)
  include ../localconfig
@@ -134,7 +122,7 @@ index f83826068..53f0d06c6 100644
  	@echo "patsubst ->" $(patsubst %.c,%,$(CFILES_TARGETS))
 diff --git a/qa/src/check_cloexec.c b/qa/src/check_cloexec.c
 new file mode 100644
-index 000000000..ebc438d30
+index 0000000000..ebc438d301
 --- /dev/null
 +++ b/qa/src/check_cloexec.c
 @@ -0,0 +1,38 @@
@@ -177,7 +165,7 @@ index 000000000..ebc438d30
 +    return 0;
 +}
 diff --git a/src/libpcp/src/auxconnect.c b/src/libpcp/src/auxconnect.c
-index 62f6f5451..67227e3c6 100644
+index 62f6f54517..67227e3c6b 100644
 --- a/src/libpcp/src/auxconnect.c
 +++ b/src/libpcp/src/auxconnect.c
 @@ -516,8 +516,12 @@ __pmInitSocket(int fd, int family)
@@ -195,7 +183,7 @@ index 62f6f5451..67227e3c6 100644
  
      /* Avoid 200 ms delay. This option is not supported for unix domain sockets. */
 diff --git a/src/libpcp_pmda/src/root.c b/src/libpcp_pmda/src/root.c
-index 1d3223b57..3950e4f1e 100644
+index 1d3223b572..3950e4f1ec 100644
 --- a/src/libpcp_pmda/src/root.c
 +++ b/src/libpcp_pmda/src/root.c
 @@ -32,7 +32,7 @@ pmdaRootConnect(const char *path)

@@ -1,6 +1,5 @@
-From 9dc1484fcab68aa395beec5f13758c2fab4e6033 Mon Sep 17 00:00:00 2001
+From d96ba5a716 Mon Sep 17 00:00:00 2001
 From: Nathan Scott <nathans@redhat.com>
-Date: Thu, 2 Jul 2026 15:28:34 +1000
 Subject: [PATCH] pmproxy: fix missing -Q and -S authentication flags (CWE-306)
 
 The pmproxy -Q (require client certificate) and -S (require
@@ -26,18 +25,11 @@ Reported-by: Lucas Gabriel Alves, TIM Security Red Team
 Reported-by: Massimiliano Brolli, TIM Security Red Team
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
----
- man/man1/pmproxy.1        |  6 +++
- qa/2100                   | 85 +++++++++++++++++++++++++++++++++++++++
- qa/2100.out               | 12 ++++++
- qa/group                  |  1 +
- src/pmproxy/src/pmproxy.c |  4 +-
- 5 files changed, 107 insertions(+), 1 deletion(-)
- create mode 100755 qa/2100
- create mode 100644 qa/2100.out
 
+Resolves: RHEL-213711 CVE-2026-16527
+---
 diff --git a/man/man1/pmproxy.1 b/man/man1/pmproxy.1
-index f2f831b6e..65d66c5d2 100644
+index f2f831b6ec..65d66c5d21 100644
 --- a/man/man1/pmproxy.1
 +++ b/man/man1/pmproxy.1
 @@ -229,6 +229,9 @@ Specify an alternate
@@ -62,7 +54,7 @@ index f2f831b6e..65d66c5d2 100644
  This mode of operation will enable the
 diff --git a/qa/2100 b/qa/2100
 new file mode 100755
-index 000000000..1de957a2f
+index 0000000000..1de957a2f1
 --- /dev/null
 +++ b/qa/2100
 @@ -0,0 +1,85 @@
@@ -153,7 +145,7 @@ index 000000000..1de957a2f
 +exit
 diff --git a/qa/2100.out b/qa/2100.out
 new file mode 100644
-index 000000000..5302aea77
+index 0000000000..5302aea77a
 --- /dev/null
 +++ b/qa/2100.out
 @@ -0,0 +1,12 @@
@@ -170,19 +162,17 @@ index 000000000..5302aea77
 +pmproxy without -S started
 +unauthenticated request correctly allowed (HTTP 200)
 diff --git a/qa/group b/qa/group
-index 76430211f..a1b2c3d4e 100644
+index 80a861c5f6..e538db58e6 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2216,6 +2216,7 @@ pmcd.pdu
- 1990 pcp buddyinfo python local
+@@ -2217,4 +2217,5 @@ pmcd.pdu
  1991 pcp netstat python local
  1992 pmda.uwsgi local
+ 2105 libpcp local security
 +2100 pmproxy local security
- 2104 libpcp local security
- 2105 libpcp pmcd local security pmcd.pdu
  4751 libpcp threads valgrind local pcp helgrind
 diff --git a/src/pmproxy/src/pmproxy.c b/src/pmproxy/src/pmproxy.c
-index 845479c46..ff18396bf 100644
+index 845479c467..ff18396bfa 100644
 --- a/src/pmproxy/src/pmproxy.c
 +++ b/src/pmproxy/src/pmproxy.c
 @@ -82,7 +82,9 @@ static pmLongOptions longopts[] = {

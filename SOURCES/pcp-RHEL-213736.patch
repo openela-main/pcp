@@ -1,10 +1,6 @@
-From b3f2265227ff5fd32cdd1de99a143ea79214806b Mon Sep 17 00:00:00 2001
+From ef848fb978 Mon Sep 17 00:00:00 2001
 From: Nathan Scott <nathans@redhat.com>
-Date: Thu, 2 Jul 2026 16:59:54 +1000
 Subject: [PATCH] libpcp: fix integer overflow in __pmGetPDU() (CWE-190)
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 When php->len is near INT_MAX (e.g. 0x7FFFFFFF), the buffer size
 computation PDU_CHUNK * (1 + php->len / PDU_CHUNK) overflows signed
@@ -28,22 +24,15 @@ Reported-by: Lucas Gabriel Alves, TIM Security Red Team
 Reported-by: Massimiliano Brolli, TIM Security Red Team
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
----
- qa/2105              | 17 +++++++++++++++++
- qa/2105.out          | 10 ++++++++++
- qa/common.pmcd.pdu   | 10 +++++++++-
- qa/group             |  1 +
- src/libpcp/src/pdu.c |  8 ++++++++
- 5 files changed, 45 insertions(+), 1 deletion(-)
- create mode 100755 qa/2105
- create mode 100644 qa/2105.out
 
+Resolves: RHEL-213736 CVE-2026-16529
+---
 diff --git a/qa/2105 b/qa/2105
 new file mode 100755
-index 000000000..44b849ad3
+index 0000000000..44b849ad39
 --- /dev/null
 +++ b/qa/2105
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,20 @@
 +#!/bin/sh
 +# PCP QA Test No. 2105
 +# Verify __pmGetPDU rejects PDU with len near INT_MAX
@@ -55,6 +44,9 @@ index 000000000..44b849ad3
 +seq=`basename $0`
 +echo "QA output created by $seq"
 +
++mkdir -p pdudata
++printf '\177\377\377\377\000\000\200\000' >pdudata/pdu-getpdu-overflow
++
 +pdu_data=pdudata/pdu-getpdu-overflow
 +grep_pattern="bad PDU len=.*exceeds maximum|PDU len=.*too large"
 +
@@ -63,7 +55,7 @@ index 000000000..44b849ad3
 +. ./common.pmcd.pdu
 diff --git a/qa/2105.out b/qa/2105.out
 new file mode 100644
-index 000000000..a304f9d91
+index 0000000000..a304f9d913
 --- /dev/null
 +++ b/qa/2105.out
 @@ -0,0 +1,10 @@
@@ -78,7 +70,7 @@ index 000000000..a304f9d91
 +indirectly lost: 0 bytes in 0 blocks
 +ERROR SUMMARY: 0 errors from 0 contexts ...
 diff --git a/qa/common.pmcd.pdu b/qa/common.pmcd.pdu
-index d9e3c6c5c..9882284b5 100644
+index d9e3c6c5c9..9882284b5c 100644
 --- a/qa/common.pmcd.pdu
 +++ b/qa/common.pmcd.pdu
 @@ -55,6 +55,14 @@ _filter()
@@ -106,18 +98,17 @@ index d9e3c6c5c..9882284b5 100644
  echo
  echo "and no valgrind badness ..."
 diff --git a/qa/group b/qa/group
-index e87583d69..76430211f 100644
+index d4da513ce2..80a861c5f6 100644
 --- a/qa/group
 +++ b/qa/group
-@@ -2216,5 +2216,6 @@ pmcd.pdu
+@@ -2216,4 +2216,5 @@ pmcd.pdu
  1990 pcp buddyinfo python local
  1991 pcp netstat python local
  1992 pmda.uwsgi local
- 2104 libpcp local security
-+2105 libpcp pmcd local security pmcd.pdu
++2105 libpcp local security
  4751 libpcp threads valgrind local pcp helgrind
 diff --git a/src/libpcp/src/pdu.c b/src/libpcp/src/pdu.c
-index 5845932be..0a4ae75b2 100644
+index 5845932be1..0a4ae75b25 100644
 --- a/src/libpcp/src/pdu.c
 +++ b/src/libpcp/src/pdu.c
 @@ -658,6 +658,14 @@ check_read_len:

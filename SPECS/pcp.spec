@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 6.3.7
-Release: 8%{?dist}.4
+Release: 13%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -25,17 +25,36 @@ Patch13: atop-cpu-utilization.patch
 Patch14: pmda-openmetrics-performance.patch
 Patch15: pcp-RHEL-133548.patch
 Patch16: memory-leaks.patch
-# https://issues.redhat.com/browse/RHEL-213688
+Patch17: ds389.patch
+# https://issues.redhat.com/browse/RHEL-213747
+# https://github.com/performancecopilot/pcp/commit/ec81e2b35c7dc19a69406d2712d1b9904ac22112
+# https://github.com/performancecopilot/pcp/commit/b72da5135df7fb08ca432db1e2db24478f43aea2
+# https://github.com/performancecopilot/pcp/commit/edfd909edac8ad4762aa150e330f92211df98c1c
+Patch18: pcp-RHEL-213747.patch
+# https://issues.redhat.com/browse/RHEL-213736
+# https://github.com/performancecopilot/pcp/commit/ef848fb978c8b2f0bf8c6777bb478635aba6c6dc5
+Patch19: pcp-RHEL-213736.patch
+# https://issues.redhat.com/browse/RHEL-213711
+# https://github.com/performancecopilot/pcp/commit/d96ba5a716c8b2f0bf8c6777bb478635aba6c6dc5
+Patch20: pcp-RHEL-213711.patch
+# https://issues.redhat.com/browse/RHEL-213687
 # https://github.com/performancecopilot/pcp/commit/7e27614006ff6fc4925991edbedaf1eab6b14731
-Patch17: pcp-6.3.7-CVE-2026-16526.patch
-# https://github.com/performancecopilot/pcp/commit/ef848fb978d26335f9676933f541c73b58f130a6
-Patch18: pcp-6.3.7-CVE-2026-16529.patch
-# https://issues.redhat.com/browse/RHEL-213712
-# https://github.com/performancecopilot/pcp/commit/d96ba5a716eeff7840138eb08fbab0d11a57f641
-Patch19: pcp-6.3.7-CVE-2026-16527.patch
-# https://issues.redhat.com/browse/RHEL-213668
-# https://github.com/performancecopilot/pcp/commit/c5cbeceb7d3c2af357c04065cdd911efdc270de0
-Patch20: pcp-6.3.7-CVE-2026-16524.patch
+Patch21: pcp-RHEL-213687.patch
+# https://issues.redhat.com/browse/RHEL-213658
+# https://github.com/performancecopilot/pcp/commit/c5cbeceb7d8b2f0bf8c6777bb478635aba6c6dc5
+Patch22: pcp-RHEL-213658.patch
+Patch23: pcp-6.3.7-pmlogmv-command-injection.patch
+Patch24: pcp-6.3.7-pmieconf-command-injection.patch
+Patch25: pcp-6.3.7-OOB-pmLogLoadLabelSet.patch
+Patch26: pcp-6.3.7-OOB-pmDiscoverDecodeMetaInDom.patch
+Patch27: pcp-6.3.7-OOB-pmDecodeLabel.patch
+Patch28: pcp-6.3.7-OOB-pmDecodeLogStatus.patch
+Patch29: pcp-6.3.7-OOB-pmDecodeInstance.patch
+Patch30: pcp-6.3.7-pducrash-oob-tests.patch
+Patch31: pcp-6.3.7-timezone-zoneinfo-validation.patch
+Patch32: pcp-6.3.7-pmdaroot-peer-credentials.patch
+Patch33: pcp-6.3.7-pmproxy-rest-certreqd.patch
+Patch34: pcp-6.3.7-scanmeta-LogLoadInDom-caller.patch
 
 %if 0%{?fedora} >= 40 || 0%{?rhel} >= 10
 ExcludeArch: %{ix86}
@@ -2517,9 +2536,6 @@ updated policy package.
 %prep
 %autosetup -p1
 
-# Create binary QA test data for CVE-2026-16529 overflow test (8 bytes)
-/usr/bin/printf '\x7f\xff\xff\xff\x00\x00\x80\x00' > qa/pdudata/pdu-getpdu-overflow
-
 %build
 # the buildsubdir macro gets defined in %%setup and is apparently only available in the next step (i.e. the %%build step)
 %global __strip %{_builddir}/%{?buildsubdir}/build/rpm/custom-strip
@@ -3649,18 +3665,27 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
-* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.4
-- Fix CVE-2026-16524 command injection in linux_sockets PMDA (RHEL-213668)
+* Thu Aug 13 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-13
+- Fix qa/2101 to stop using undefined $seq_full on PCP 6.3.7
+- Fix qa/2105 to ship malformed PDU test data for CVE-2026-16529
 
-* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.3
-- Fix missing pmproxy -Q and -S authentication flags (CVE-2026-16527,
-  RHEL-213712)
+* Thu Aug 13 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-12
+- Fix pcp-RHEL-213736.patch to stop deleting stray .orig backup files
 
-* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.2
-- Fix integer overflow in __pmGetPDU() (CVE-2026-16529, RHEL-213737)
+* Thu Aug 13 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-11
+- Backport PCP security CVE fixes for RHEL 9.9
+- Fix integer overflow in __pmGetPDU() (CVE-2026-16529)
+- Fix missing pmproxy -Q/-S authentication flags (CVE-2026-16527)
+- Set FD_CLOEXEC on AF_UNIX sockets (CVE-2026-16526)
+- Fix command injection in linux_sockets PMDA (CVE-2026-16524)
+- Backport applicable private-pcp security hardening fixes
+- CVE-2026-16531 is not applicable (pmproxy logger servlet absent in 6.3.7)
 
-* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-8.1
-- Fix CVE-2026-16526: set FD_CLOEXEC on AF_UNIX sockets (RHEL-213688)
+* Thu Jul 30 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 6.3.7-10
+- Fix arbitrary pointer dereference in __pmLogLoadInDom (CVE-2026-16530)
+
+* Thu Apr 2 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-9
+- Backported ds389 patch from the upstream (pcp-7.1.1)
 
 * Thu Mar 5 2026 Jan Kurik <jkurik@redhat.com> - 6.3.7-8
 - Backported memory leaks patches from pcp-7.0.3

@@ -1,0 +1,338 @@
+From dc73ec0f57 Mon Sep 17 00:00:00 2001
+From: Nathan Scott <nathans@redhat.com>
+Subject: [PATCH] pmlogmv: fix command injection in pmlogcp/pmlogmv (CWE-78)
+
+The do_link() function used system("cp src dst") to copy archive files
+when link() fails with EXDEV.  The source filename was not validated by
+check_name() and was embedded directly into the shell command, enabling
+command injection via crafted archive filenames.  The do_checksum()
+function similarly used system() for command detection and popen() for
+checksum execution.
+
+Fix:
+- Replace system("cp ...") with copy_file() using open/read/write
+  syscalls directly, eliminating shell involvement entirely
+- Replace system("if which ...") checksum detection with access() checks
+- Replace popen("md5sum <file") with __pmProcessPipe() which uses
+  execvp() internally, passing filenames as argv not shell words
+- Expand check_name() blocklist to include backtick, braces, backslash,
+  bang, newline and tab (defense-in-depth, no longer the security
+  boundary)
+- Apply check_name() to source names as well as destination names
+- Add qa/2102 verifying metacharacter rejection and normal copy
+
+Reported-by: Francisco Alisson Bezerra, TIM Security Red Team
+Reported-by: Lucas Gabriel Alves, TIM Security Red Team
+Reported-by: Massimiliano Brolli, TIM Security Red Team
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
+---
+diff --git a/qa/2102 b/qa/2102
+new file mode 100755
+index 0000000000..5f8a4ef1cc
+--- /dev/null
++++ b/qa/2102
+@@ -0,0 +1,67 @@
++#!/bin/sh
++# PCP QA Test No. 2102
++# Verify pmlogmv rejects shell metacharacters in filenames
++# and that normal move operations still work (CWE-78 fix)
++#
++# Copyright (c) 2026 Red Hat.  All Rights Reserved.
++#
++
++seq=`basename $0`
++echo "QA output created by $seq"
++
++# get standard environment, filters and checks
++. ./common.product
++. ./common.filter
++. ./common.check
++
++_cleanup()
++{
++    cd $here
++    $sudo rm -rf $tmp $tmp.*
++}
++
++status=0	# success is the default!
++trap "_cleanup; exit \$status" 0 1 2 3 15
++
++_filter()
++{
++    sed \
++	-e "s,$tmp,TMP,g" \
++	-e "s/pmlogmv/TOOL/" \
++    # end
++}
++
++# real QA test starts here
++
++echo "=== normal pmlogmv should succeed ==="
++for ext in meta 0 index
++do
++    [ -f tmparch/foo.$ext ] && cp tmparch/foo.$ext $tmp.src.$ext
++done
++pmlogmv $tmp.src $tmp.mvdest 2>&1 | _filter
++if [ -f $tmp.mvdest.meta ] || [ -f $tmp.mvdest.0 ]; then
++    echo "move succeeded"
++else
++    echo "FAIL: move did not create files"
++fi
++
++echo
++echo "=== pmlogmv with backtick in destination should be rejected ==="
++pmlogmv tmparch/foo "$tmp.bad\`id\`" >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++echo
++echo "=== pmlogmv with semicolon in destination should be rejected ==="
++pmlogmv tmparch/foo "$tmp.bad;id" >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++echo
++echo "=== pmlogmv with dollar in destination should be rejected ==="
++pmlogmv tmparch/foo '$tmp.bad${IFS}' >$tmp.out 2>&1
++_sts=$?
++_filter <$tmp.out
++echo "exit status: $_sts"
++
++# success, all done
++exit
+diff --git a/qa/2102.out b/qa/2102.out
+new file mode 100644
+index 0000000000..5a3fec6ca8
+--- /dev/null
++++ b/qa/2102.out
+@@ -0,0 +1,15 @@
++QA output created by 2102
++=== normal pmlogmv should succeed ===
++move succeeded
++
++=== pmlogmv with backtick in destination should be rejected ===
++TOOL: name (TMP.bad`id`) unsafe [shell metacharacter '`']
++exit status: 1
++
++=== pmlogmv with semicolon in destination should be rejected ===
++TOOL: name (TMP.bad;id) unsafe [shell metacharacter ';']
++exit status: 1
++
++=== pmlogmv with dollar in destination should be rejected ===
++TOOL: name ($tmp.bad${IFS}) unsafe [shell metacharacter '$']
++exit status: 1
+diff --git a/qa/group b/qa/group
+index 0d9ef9ffb6..9c158034fd 100644
+--- a/qa/group
++++ b/qa/group
+@@ -2220,4 +2220,5 @@ pmcd.pdu
+ 2100 pmproxy local security
+ 2104 libpcp local security
+ 2101 linux_sockets local security
++2102 pmlogmv local security
+ 4751 libpcp threads valgrind local pcp helgrind
+diff --git a/src/pmlogmv/pmlogmv.c b/src/pmlogmv/pmlogmv.c
+index ee59e07b7e..742fa8d740 100644
+--- a/src/pmlogmv/pmlogmv.c
++++ b/src/pmlogmv/pmlogmv.c
+@@ -17,6 +17,8 @@
+  */
+ 
+ #include <unistd.h>
++#include <fcntl.h>
++#include <sys/stat.h>
+ #include <stdlib.h>
+ #include <ctype.h>
+ #include <errno.h>
+@@ -73,12 +75,12 @@ myoverrides(int opt, pmOptions *optsp)
+ static int
+ check_name(char *name)
+ {
+-    char	*meta = " $?*[(|;&<>";
++    char	*meta = " $?*[(|;&<>`{}\\!\n\t";
+     char	*p;
+ 
+     for (p = meta; *p; p++) {
+ 	if (index(name, *p) != NULL) {
+-	    fprintf(stderr, "pmlogmv: newname (%s) unsafe [shell metacharacter '%c']\n", name, *p);
++	    fprintf(stderr, "pmlogmv: name (%s) unsafe [shell metacharacter '%c']\n", name, *p);
+ 	    return -1;
+ 	}
+     }
+@@ -144,54 +146,54 @@ setup_sufftab(void)
+ void
+ do_checksum(const char *file, char *sum)
+ {
+-    char	cmd[MAXPATHLEN+40];
+     static char	*executable = NULL;
+     FILE	*fp;
+     static int	trunc_warn = 0;
+ 
+     if (executable == NULL) {
+-	/*
+-	 * one-trip to initialize the "checksum" command ...
+-	 * prefer md5sum, then sha256sum, then sha1sum, then sum,
+-	 * else do nothing
+-	 */
+-	snprintf(cmd, sizeof(cmd), "if which md5sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-	if (system(cmd) == 0)
+-	    executable = "md5sum";
+-	else {
+-	    snprintf(cmd, sizeof(cmd), "if which sha256sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-	    if (system(cmd) == 0)
+-		executable = "sha256sum";
+-	    else {
+-		snprintf(cmd, sizeof(cmd), "if which sha1sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-		if (system(cmd) == 0)
+-		    executable = "sha1sum";
+-		else {
+-		    snprintf(cmd, sizeof(cmd), "if which sum >/dev/null 2>&1; then exit 0; fi; exit 1");
+-		    if (system(cmd) == 0)
+-			executable = "sum";
+-		    else {
+-			executable = "none";
+-			fprintf(stderr, "pmlogmv: warning: no checksum command found, checksums skipped\n");
+-		    }
+-		}
++	static const char *candidates[] = {
++	    "md5sum", "sha256sum", "sha1sum", "sum", NULL
++	};
++	const char	**cp;
++	char		path[MAXPATHLEN];
++
++	executable = "none";
++	for (cp = candidates; *cp != NULL; cp++) {
++	    snprintf(path, sizeof(path), "/usr/bin/%s", *cp);
++	    if (access(path, X_OK) == 0) {
++		executable = (char *)*cp;
++		break;
++	    }
++	    snprintf(path, sizeof(path), "/usr/sbin/%s", *cp);
++	    if (access(path, X_OK) == 0) {
++		executable = (char *)*cp;
++		break;
+ 	    }
+ 	}
++	if (strcmp(executable, "none") == 0)
++	    fprintf(stderr, "pmlogmv: warning: no checksum command found, checksums skipped\n");
+ 	if (verbose && strcmp(executable, "none") != 0)
+ 	    printf("checksum cmd: %s\n", executable);
+     }
+     sum[0] = '\0';
+     if (strcmp(executable, "none") == 0)
+ 	return;
+-    snprintf(cmd, sizeof(cmd), "%s <%s", executable, file);
+-    if ((fp = popen(cmd, "r")) == NULL) {
+-	/*
+-	 * abandon checksuming ...
+-	 */
+-	fprintf(stderr, "pmlogmv: pipe(\"%s\") failed: %s\n", cmd, strerror(errno));
+-	executable = "none";
++    {
++	__pmExecCtl_t	*argp = NULL;
++	int		sts;
++
++	if ((sts = __pmProcessAddArg(&argp, executable)) < 0 ||
++	    (sts = __pmProcessAddArg(&argp, file)) < 0) {
++	    executable = "none";
++	    return;
++	}
++	if ((sts = __pmProcessPipe(&argp, "r", PM_EXEC_TOSS_NONE, &fp)) < 0) {
++	    fprintf(stderr, "pmlogmv: __pmProcessPipe(\"%s\") failed: %s\n", executable, pmErrStr(sts));
++	    executable = "none";
++	    return;
++	}
+     }
+-    else {
++    {
+ 	char	*p = sum;
+ 	int	c;
+ 	while ((c = fgetc(fp)) != EOF) {
+@@ -200,9 +202,6 @@ do_checksum(const char *file, char *sum)
+ 		break;
+ 	    }
+ 	    if (p >= &sum[MAX_CHECKSUM]) {
+-		/*
+-		 * avoid buffer overrun, report only once unless -V
+-		 */
+ 		if (trunc_warn++ == 0 || verbose)
+ 		    fprintf(stderr, "pmlogmv: warning: checksum truncated after %d characters\n", MAX_CHECKSUM);
+ 		*p = '\0';
+@@ -210,10 +209,54 @@ do_checksum(const char *file, char *sum)
+ 	    }
+ 	    *p++ = c;
+ 	}
+-	pclose(fp);
++	__pmProcessPipeClose(fp);
++    }
++}
++
++/*
++ * copy a file using read/write - no shell involvement
++ */
++static int
++copy_file(const char *src, const char *dst)
++{
++    int		sfd, dfd;
++    struct stat	sbuf;
++    ssize_t	nread, nwritten;
++    char	buf[BUFSIZ];
++
++    if ((sfd = open(src, O_RDONLY)) < 0)
++	return -1;
++    if (fstat(sfd, &sbuf) < 0) {
++	close(sfd);
++	return -1;
++    }
++    if ((dfd = open(dst, O_WRONLY|O_CREAT|O_EXCL, sbuf.st_mode & 0777)) < 0) {
++	close(sfd);
++	return -1;
++    }
++    while ((nread = read(sfd, buf, sizeof(buf))) > 0) {
++	char	*p = buf;
++	while (nread > 0) {
++	    nwritten = write(dfd, p, nread);
++	    if (nwritten < 0) {
++		close(sfd);
++		close(dfd);
++		unlink(dst);
++		return -1;
++	    }
++	    nread -= nwritten;
++	    p += nwritten;
++	}
+     }
++    close(sfd);
++    if (nread < 0 || close(dfd) < 0) {
++	unlink(dst);
++	return -1;
++    }
++    return 0;
+ }
+ 
++
+ /*
+  * make link for one physical file
+  * return codes:
+@@ -267,7 +310,6 @@ do_link(int vol)
+ #endif
+ 			/* link() failed cross-device, need to copy ... */
+ 			int		sts;
+-			char		cmd[2*MAXPATHLEN+4];
+ 			char		sum_src[MAX_CHECKSUM+1];
+ 			char		sum_dst[MAX_CHECKSUM+1];
+ 			if (checksum) {
+@@ -280,8 +322,7 @@ do_link(int vol)
+ 				printf("source checksum: %s\n", sum_src);
+ 			}
+ 
+-			snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
+-			if ((sts = system(cmd)) != 0) {
++			if ((sts = copy_file(src, dst)) != 0) {
+ 			    fprintf(stderr, "pmlogmv: copy %s -> %s failed: %s\n", src, dst, strerror(errno));
+ 			    return -1;
+ 			}
