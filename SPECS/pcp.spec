@@ -1,6 +1,6 @@
 Name:    pcp
 Version: 7.1.5
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: System-level performance monitoring and performance management
 License: GPL-2.0-or-later AND LGPL-2.1-or-later AND CC-BY-3.0
 URL:     https://pcp.io
@@ -76,6 +76,10 @@ Patch18: pcp-7.1.5-pmproxy-logger-meta-network.patch
 
 # https://github.com/performancecopilot/pcp/commit/be9ade995083a2732741789199209e2eb01b9fbd
 Patch19: pcp-7.1.5-scanmeta-LogLoadInDom-caller.patch
+
+# https://github.com/performancecopilot/pcp/commit/ba7ecf45e8
+# https://issues.redhat.com/browse/RHEL-183368
+Patch20: pcp-7.1.5-pmdapostgresql-config.patch
 
 # The additional linker flags break out-of-tree PMDAs.
 # https://bugzilla.redhat.com/show_bug.cgi?id=2043092
@@ -3490,6 +3494,9 @@ fi
 %files zeroconf -f pcp-zeroconf-files.rpm
 
 %changelog
+* Fri Sep 25 2026 Jan Kuřík <jkurik@redhat.com> - 7.1.5-7
+- Validate PostgreSQL PMDA configuration before installation (RHEL-183368)
+
 * Wed Aug 12 2026 Jan Kuřík <jkurik@redhat.com> - 7.1.5-6
 - Backport remaining PCP security hardening fixes from private-pcp
 - pmieconf and pmlogmv command injection hardening (CWE-78)
